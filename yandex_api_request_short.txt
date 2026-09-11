@@ -1,0 +1,47 @@
+=== Ответ модератору Яндекс Директа ===
+
+1. Сценарий и схема вызовов
+Приложение — внутренняя панель управления рекламой магазина stroiapp.ru, используется только сотрудниками магазина. Вызовы к API Директа синхронные, 1 поток, HTTP-клиент httpx с max_connections=1.
+
+Создание кампании (1–2 раза в неделю, только по инициативе менеджера):
+Campaigns.add (Name=название товара, DailyBudget, TextCampaign: BiddingStrategy={Search:HIGHEST_POSITION, Network:NETWORK_DEFAULT}, Settings:GEO=1) → CampaignId → AdGroups.add (CampaignId, Name, RegionIds:[1]) → AdGroupId → Ads.add (AdGroupId, TextAd:{Title≤33, Text≤75, Href}) → AdId → Keywords.add (AdGroupId, 1–5 фраз=названия товаров из OpenCart) → Campaigns.get (проверка). Все шаги последовательны, без ID предыдущего шаг невозможен.
+
+Мониторинг (6 раз/день):
+Campaigns.get (Types:TEXT_CAMPAIGN, FieldNames:Id,Name,Status,State,DailyBudget) → AdGroups.get → Ads.get → Keywords.get. При ENDED — уведомление в Telegram.
+
+Отчёты (1 раз/сутки):
+Reports.add (DateRange:CUSTOM_DATE_RANGE, Format:TSV, Columns:CampaignName,Clicks,Impressions,Cost) → цикл Reports.get каждые 60 сек до DONE.
+
+2. Цели методов API
+Campaigns.* — создание Campaigns.add, проверка Campaigns.get, изменение бюджета Campaigns.update, пауза Campaigns.suspend, возобновление Campaigns.resume, архивирование Campaigns.archive. Все действия через UI с подтверждением.
+AdGroups.* — группы по категориям через AdGroups.add/get.
+Ads.* — объявления из карточек OpenCart через Ads.add: Title=название, Text=цена+наличие, Href=URL. Автообновление Ads.update при изменении цены.
+Keywords.* — Keywords.add = названия товаров из базы. Без подбора извне.
+Bids.* — просмотр Bids.get и ручное изменение Bids.set (0–1 раз/неделю).
+Reports.* — ежедневная статистика кликов, показов, расходов.
+
+UI интерфейс (React + TailwindCSS): раздел «Реклама» в админ-панели stroiapp. 4 блока: (1) Список кампаний со статусом и бюджетом, кнопки «Создать», «Пауза», «Архивировать». (2) Таблица групп с товаром, статусом модерации, ставкой. (3) Форма объявления: Title, Text, Href (автоиз OpenCart), Keywords (название товара). (4) Отчёты: график кликов/расходов, таблица из Reports.
+
+3. Объём данных
+Текущий: 1 клиент (сам магазин, нет внешних клиентов), 0–3 кампании, 1 группа/кампанию, 1 объявление/группу, 1–5 фраз/группу. Каталог: ~800 SKU.
+План: ≤10 кампаний, ≤10 групп, ≤10 объявлений, ≤50 фраз. Рост ограничен собственным каталогом. Услуги третьим лицам не предоставляем.
+
+4. Учёт ограничений API
+• Units: парсинг после каждого вызова. При >18000 — блок создания. При >19000 — только чтение. Ежедневный расход: ~420 units.
+• Batch: Keywords.add ≤50 фраз, Ads.add ≤50, AdGroups.add ≤50, Campaigns.add ≤10 за вызов. Мы создаём 1 кампанию, 1 группу, 1 объявление, ≤5 фраз за сессию.
+• Валидация полей: Title ≤33, Title2 ≤30, Text ≤75, Keyword ≤4096. Автообрезание с «…».
+• Регион: Москва (RegionIds:[1]). Стратегии: HIGHEST_POSITION + NETWORK_DEFAULT.
+• Модерация: показы не запускаются автоматически. Запуск только вручную через ЛК Директа. Статус модерации проверяется Keywords.get раз в 4 часа.
+• Sandbox: api-sandbox.direct.yandex.com перед продом, переключатель: env YANDEX_DIRECT_SANDBOX=true.
+• Безопасность: токен хранится в переменной окружения, не в коде и не в Git. Ротация каждые 90 дней.
+
+5. Обработка ошибок
+• Код 53 (auth): уведомление менеджера, без повторов.
+• Код 56 (invalid param): логирование, возврат ошибки с указанием поля.
+• Код 57 (лимит): ожидание 60 сек, повтор до 3 раз (интервалы 5/15/60 сек).
+• Сеть (DNS/timeout): fallback на IP с Host-заголовком, 2 повтора. Таймаут: connect 10 сек, read 60 сек.
+• SSL: проверка CA-bundle, fallback на обновление.
+• Бизнес-логика: 3300 (Campaign not found) → удаление устаревшей ссылки из базы приложения; 3500 (AdGroup not found) → пропуск группы; 3700 (Keyword already exists) → пропуск дубликата без ошибки; 3710 (Keyword invalid) → пропуск с записью в лог.
+• Логирование: [TIMESTAMP] [METHOD] [STATUS] [Units] [ErrorCode], хранение 30 дней, ротация gzip.
+
+Контакт: info@stroiapp.ru

@@ -1,0 +1,63 @@
+# Dependencies
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment & secrets
+.env
+.env.local
+*.env
+
+# Build outputs
+frontend/dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Backups & temp
+backups/
+ai_backups/
+*_temp_*
+*.bak
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Diagnostic scripts (dev artifacts)
+check_*.py
+diag_*.py
+debug_*.py
+fix_*.py
+run_*.py
+read_*.py
+upload_*.py
+test_*.py
+verify_*.py
+rebuild_*.py
+refresh_*.py
+restore_*.py
+rebuild_*.py
+deploy_blog*.py
+health_check*.py
+try_*.py
+probe_*.py
+investigate*.py
+trigger_gen*.py
+wait_check.py
+find_*.py
+read_*.py
+search_all_mods.py
+seo_audit.py
+set_weights.py
+crack_admin*.py
+admin_modification_refresh.txt
+diag_output.txt
+health_check_result.txt
+mod_xml/
