@@ -10,8 +10,7 @@ __pycache__/
 .env.local
 *.env
 
-# Build outputs
-frontend/dist/
+# Build outputs (frontend/dist committed intentionally for VPS deploy)
 build/
 
 # Logs

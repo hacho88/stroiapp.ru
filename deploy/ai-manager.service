@@ -1,0 +1,18 @@
+[Unit]
+Description=AI StroiApp Manager (FastAPI/uvicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/ai-manager/repo/backend
+EnvironmentFile=/var/www/ai-manager/repo/backend/.env
+ExecStart=/var/www/ai-manager/repo/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+StandardOutput=append:/var/log/ai-manager.log
+StandardError=append:/var/log/ai-manager-error.log
+
+[Install]
+WantedBy=multi-user.target
