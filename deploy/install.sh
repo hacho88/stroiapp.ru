@@ -15,7 +15,7 @@ APP_DIR="/var/www/ai-manager"
 echo "=== 1/7 System packages ==="
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y python3 python3-venv python3-pip nginx git curl
+apt-get install -y python3 python3-venv python3-pip nginx git curl certbot python3-certbot-nginx
 
 echo "=== 2/7 Clone repository ==="
 if [ -d "$APP_DIR/repo/.git" ]; then
