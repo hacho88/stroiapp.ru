@@ -39,6 +39,9 @@ fi
 
 echo "=== 5/7 systemd service ==="
 cp "$APP_DIR/repo/deploy/ai-manager.service" /etc/systemd/system/ai-manager.service
+mkdir -p "$APP_DIR/repo/backend/data"
+touch /var/log/ai-manager.log /var/log/ai-manager-error.log
+chown -R www-data:www-data "$APP_DIR/repo/backend/data" /var/log/ai-manager.log /var/log/ai-manager-error.log
 systemctl daemon-reload
 systemctl enable ai-manager
 systemctl restart ai-manager
