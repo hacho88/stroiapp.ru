@@ -4080,7 +4080,13 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
           meta_keyword: data.meta_keyword || prev.meta_keyword,
         }));
         if (data.attributes && data.attributes.length) {
-          setProductAttrs(data.attributes);
+          const norm = (s) => (s || "").toLowerCase().trim();
+          const mapped = data.attributes.map((a) => {
+            const n = norm(a.name);
+            const match = allAttributes.find((x) => norm(x.name) === n) || allAttributes.find((x) => n && (norm(x.name).startsWith(n) || n.startsWith(norm(x.name))));
+            return { ...a, attribute_id: match ? String(match.attribute_id) : (a.attribute_id || "") };
+          });
+          setProductAttrs(mapped);
         }
         addToast("Описание, SEO и характеристики сгенерированы", "success");
       }
@@ -4410,7 +4416,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
                   {productAttrs.map((attr, idx) => (
                     <div key={idx} className="flex gap-2 items-center">
                       <select value={attr.attribute_id || ""} onChange={(e) => updateAttributeRow(idx, "attribute_id", e.target.value)} className="flex-1 rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500">
-                        <option value="">Выберите...</option>
+                        <option value="">{attr.name ? attr.name + " — выбрать" : "Выберите..."}</option>
                         {allAttributes.map((a) => (
                           <option key={a.attribute_id} value={a.attribute_id}>{a.name} {a.group_name ? "(" + a.group_name + ")" : ""}</option>
                         ))}
