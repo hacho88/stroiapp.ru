@@ -1283,7 +1283,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-screen bg-slate-950 text-slate-100 bg-grid">
+    <div className="flex h-[100dvh] bg-slate-950 text-slate-100 bg-grid">
       {/* Sidebar (desktop) */}
       <aside className={`${sidebarWidth} hidden md:flex flex-col border-r border-slate-800 bg-slate-900/80 backdrop-blur transition-all duration-300`}>
         <div className="flex h-16 items-center gap-3 border-b border-slate-800 px-4">
@@ -2022,7 +2022,7 @@ function App() {
                     <button onClick={() => listOpenCartFiles()} disabled={fileLoading} className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-50">Открыть</button>
                   </div>
                 </div>
-                <div className="max-h-[calc(100vh-280px)] overflow-auto rounded-2xl border border-slate-700/30 glass glass-hover p-2">
+                <div className="max-h-[calc(100dvh-280px)] overflow-auto rounded-2xl border border-slate-700/30 glass glass-hover p-2 pb-20 md:pb-2">
                   {fileItems.map((item) => {
                     const next = `${fileListPath.replace(/\/?$/, "/")}${item.name}`;
                     return (
@@ -3485,7 +3485,7 @@ function CategoryNode({ node, level = 0, onSelect, selectedId }) {
 
 function ToastContainer({ toasts, remove }) {
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2">
+    <div className="fixed bottom-20 right-4 z-50 flex flex-col gap-2 md:bottom-6 md:right-6">
       {toasts.map((toast) => (
         <div
           key={toast.id}
@@ -3531,7 +3531,7 @@ function ProductTable({ rows, loading, onUpdateCosts, onSyncOpenCart }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-700/30 glass glass-hover">
       {loading ? <div className="p-6 text-slate-400">Загрузка...</div> : (
-        <div className="max-h-[calc(100vh-220px)] overflow-auto">
+        <div className="max-h-[calc(100dvh-220px)] overflow-auto pb-20 md:pb-0">
           <table className="w-full text-left text-sm">
             <thead className="sticky top-0 bg-slate-950 text-xs font-semibold uppercase text-slate-400">
               <tr><th className="px-4 py-3">SKU</th><th className="px-4 py-3">Товар</th><th className="px-4 py-3">Приход нал</th><th className="px-4 py-3">Приход безнал</th><th className="px-4 py-3">Розница</th><th className="px-4 py-3">Безнал продажа</th><th className="px-4 py-3">ROI</th><th className="px-4 py-3"></th></tr>
@@ -3737,7 +3737,7 @@ function AiSeoPanel({ products, setProducts, filter, setFilter, loading, setLoad
         {loading ? (
           <div className="p-8 text-center text-slate-400">Загрузка товаров...</div>
         ) : (
-          <div className="max-h-[calc(100vh-420px)] overflow-auto">
+          <div className="max-h-[calc(100dvh-420px)] overflow-auto pb-20 md:pb-0">
             <table className="w-full text-left text-sm">
               <thead className="sticky top-0 bg-slate-950 text-xs font-semibold uppercase text-slate-400">
                 <tr>
@@ -4157,7 +4157,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
           <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-200"><Folder size={16} className="text-emerald-400" />Категории</div>
           {catLoading && catTree.length === 0 ? <div className="text-sm text-slate-400">Загрузка...</div> : (
-            <div className="max-h-[calc(100vh-200px)] overflow-auto space-y-0.5">{renderTree(catTree)}</div>
+            <div className="max-h-[calc(100dvh-200px)] overflow-auto space-y-0.5 pb-20 md:pb-0">{renderTree(catTree)}</div>
           )}
         </div>
       </div>
@@ -4478,7 +4478,7 @@ function LoginScreen({ onSuccess }) {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-950 px-4 text-slate-100 bg-grid">
+    <div className="flex h-[100dvh] items-center justify-center bg-slate-950 px-4 text-slate-100 bg-grid">
       <div className="w-full max-w-sm rounded-3xl border border-slate-700/40 glass p-6 shadow-2xl shadow-emerald-500/5 md:p-8">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">

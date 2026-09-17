@@ -236,3 +236,16 @@ input:focus, select:focus, textarea:focus {
 .fade-in {
   animation: fadeInUp 0.3s ease-out forwards;
 }
+
+/* Mobile fixes */
+button, a, [role="button"], input[type="checkbox"], select {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent iOS auto-zoom on input focus (font < 16px triggers zoom) */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
