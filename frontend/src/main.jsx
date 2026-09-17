@@ -47,6 +47,23 @@ function roiColor(roi) {
   return "text-red-400";
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="rounded-2xl border border-red-500/40 bg-red-500/10 p-6 text-sm text-red-300">
+          <div className="mb-1 font-bold">Ошибка интерфейса</div>
+          <div className="font-mono text-xs break-all">{String(this.state.error)}</div>
+          <button onClick={() => this.setState({ error: null })} className="mt-3 rounded bg-slate-800 px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700">Повторить</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   const [authed, setAuthed] = React.useState(!!getToken());
   const [mobileMenu, setMobileMenu] = React.useState(false);
@@ -1344,7 +1361,7 @@ function App() {
             <Settings size={20} />
             {!collapsed && <span>Свернуть</span>}
           </button>
-          {!collapsed && <div className="px-3 pb-1 text-[10px] text-slate-600">v17.09-4</div>}
+          {!collapsed && <div className="px-3 pb-1 text-[10px] text-slate-600">v17.09-5</div>}
         </div>
       </aside>
 
@@ -3450,6 +3467,32 @@ function App() {
         </div>
       </main>
       <ToastContainer toasts={toasts} remove={removeToast} />
+
+      {/* Mobile bottom nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch border-t border-slate-800 bg-slate-900/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {["dashboard", "products", "opencart", "ai-seo"].map((id) => {
+          const t = TABS.find((x) => x.id === id);
+          const Icon = t.icon;
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${active ? "text-emerald-400" : "text-slate-500"}`}
+            >
+              <Icon size={20} />
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setMobileMenu(true)}
+          className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium text-slate-500"
+        >
+          <Menu size={20} />
+          Меню
+        </button>
+      </nav>
     </div>
   );
 }
@@ -3848,6 +3891,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
           if (c.parent_id && c.parent_id !== "0" && map[c.parent_id]) map[c.parent_id].children.push(c);
           else tree.push(c);
         });
+        if (data.status === "error") { addToast("Категории: " + (data.detail || "ошибка"), "error"); setCatLoading(false); return; }
         setCatTree(tree);
         setCatLoading(false);
         if (!selCatId && tree.length) loadCategory(tree[0].category_id);
@@ -3860,7 +3904,10 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     setCatOpen(false);
     setCatLoading(true);
     apiGet("/opencart/products/byCategory?category_id=" + categoryId)
-      .then((data) => { setCatProducts(data.products || []); setCatLoading(false); })
+      .then((data) => {
+        if (data.status === "error") { addToast("Товары: " + (data.detail || "ошибка"), "error"); setCatProducts([]); setCatLoading(false); return; }
+        setCatProducts(data.products || []); setCatLoading(false);
+      })
       .catch((err) => { addToast("Ошибка загрузки товаров: " + err.message, "error"); setCatProducts([]); setCatLoading(false); });
   }
 
@@ -4455,31 +4502,6 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         </div>
       )}
 
-      {/* Mobile bottom nav */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch border-t border-slate-800 bg-slate-900/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {["dashboard", "products", "opencart", "ai-seo"].map((id) => {
-          const t = TABS.find((x) => x.id === id);
-          const Icon = t.icon;
-          const active = tab === id;
-          return (
-            <button
-              key={id}
-              onClick={() => setTab(id)}
-              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${active ? "text-emerald-400" : "text-slate-500"}`}
-            >
-              <Icon size={20} />
-              {t.label}
-            </button>
-          );
-        })}
-        <button
-          onClick={() => setMobileMenu(true)}
-          className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium text-slate-500"
-        >
-          <Menu size={20} />
-          Меню
-        </button>
-      </nav>
     </div>
   );
 }
@@ -4551,7 +4573,7 @@ function LoginScreen({ onSuccess }) {
             {busy ? "Вход..." : "Войти"}
           </button>
         </form>
-        <div className="mt-4 text-center text-[10px] text-slate-600">v17.09-4</div>
+        <div className="mt-4 text-center text-[10px] text-slate-600">v17.09-5</div>
       </div>
     </div>
   );
