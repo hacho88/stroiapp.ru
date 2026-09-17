@@ -50,6 +50,7 @@ function roiColor(roi) {
 function App() {
   const [authed, setAuthed] = React.useState(!!getToken());
   const [mobileMenu, setMobileMenu] = React.useState(false);
+  const mainRef = React.useRef(null);
   const [tab, setTab] = React.useState("dashboard");
   const [products, setProducts] = React.useState([]);
   const [compare, setCompare] = React.useState([]);
@@ -204,6 +205,10 @@ function App() {
     window.addEventListener("ai-auth-expired", onExpired);
     return () => window.removeEventListener("ai-auth-expired", onExpired);
   }, []);
+
+  React.useEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTo({ top: 0 });
+  }, [tab]);
 
   React.useEffect(() => {
     if (!authed) return;
@@ -1273,7 +1278,7 @@ function App() {
   }
 
   const filteredProducts = products
-    .filter((p) => { const v = query.trim().toLowerCase(); return !v || p.sku.toLowerCase().includes(v) || p.name.toLowerCase().includes(v); })
+    .filter((p) => { const v = query.trim().toLowerCase(); return !v || (p.sku || "").toLowerCase().includes(v) || (p.name || "").toLowerCase().includes(v); })
     .sort((a, b) => b.roi - a.roi);
 
   const sidebarWidth = collapsed ? "w-16" : "w-56";
@@ -1401,7 +1406,7 @@ function App() {
       )}
 
       {/* Main */}
-      <main className="flex-1 overflow-auto">
+      <main ref={mainRef} className="flex-1 overflow-auto">
         {/* Top bar */}
         <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-slate-800 bg-slate-950/80 px-3 backdrop-blur md:px-6">
           <div className="flex items-center gap-2 md:gap-4">
@@ -4147,7 +4152,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   const filteredProducts = React.useMemo(() => {
     if (!prodSearch.trim()) return catProducts;
     const q = prodSearch.toLowerCase();
-    return catProducts.filter((p) => p.name.toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q) || String(p.product_id).includes(q));
+    return catProducts.filter((p) => (p.name || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q) || String(p.product_id).includes(q));
   }, [catProducts, prodSearch]);
 
   return (

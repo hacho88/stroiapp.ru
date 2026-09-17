@@ -322,7 +322,13 @@ async def categories_tree():
 @router.get("/categories/list")
 async def categories_list():
     try:
-        return await opencart_api.get_action("category/list")
+        data = await opencart_api.get_action("category/list")
+        cats = data.get("categories") or []
+        slim = [
+            {"category_id": c.get("category_id"), "parent_id": c.get("parent_id"), "name": c.get("name")}
+            for c in cats
+        ]
+        return {"categories": slim}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
