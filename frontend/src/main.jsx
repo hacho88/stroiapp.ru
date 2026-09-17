@@ -4,10 +4,10 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pi
 import {
   AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
   FileText, Folder, Image, MapPin, MessageSquare, MonitorCheck, Package, PenTool, Plus, Rocket, Save, Search, Send, Settings, ShieldCheck, ShoppingCart, Sparkles, Star, Tag, Users,
-  RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap
+  RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap, Menu, LogOut
 } from "lucide-react";
 import "./index.css";
-import { apiGet, apiPost, apiUpload, apiUrl, apiLogin, getToken } from "./lib/api";
+import { apiGet, apiPost, apiUpload, apiUrl, apiLogin, getToken, clearToken } from "./lib/api";
 import SiteBuilder from "./components/SiteBuilder";
 import YandexWebmaster from "./components/YandexWebmaster";
 import { LayoutTemplate } from "lucide-react";
@@ -49,6 +49,7 @@ function roiColor(roi) {
 
 function App() {
   const [authed, setAuthed] = React.useState(!!getToken());
+  const [mobileMenu, setMobileMenu] = React.useState(false);
   const [tab, setTab] = React.useState("dashboard");
   const [products, setProducts] = React.useState([]);
   const [compare, setCompare] = React.useState([]);
@@ -1283,8 +1284,8 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 bg-grid">
-      {/* Sidebar */}
-      <aside className={`${sidebarWidth} flex flex-col border-r border-slate-800 bg-slate-900/80 backdrop-blur transition-all duration-300`}>
+      {/* Sidebar (desktop) */}
+      <aside className={`${sidebarWidth} hidden md:flex flex-col border-r border-slate-800 bg-slate-900/80 backdrop-blur transition-all duration-300`}>
         <div className="flex h-16 items-center gap-3 border-b border-slate-800 px-4">
           <Box className="shrink-0 text-emerald-400" size={24} />
           {!collapsed && (
@@ -1328,6 +1329,10 @@ function App() {
           })}
         </nav>
         <div className="border-t border-slate-800 p-2">
+          <button onClick={() => { clearToken(); setAuthed(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:bg-slate-800">
+            <LogOut size={20} />
+            {!collapsed && <span>Выйти</span>}
+          </button>
           <button onClick={() => setCollapsed((c) => !c)} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-400 hover:bg-slate-800">
             <Settings size={20} />
             {!collapsed && <span>Свернуть</span>}
@@ -1335,14 +1340,77 @@ function App() {
         </div>
       </aside>
 
+      {/* Mobile drawer */}
+      {mobileMenu && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-sm" onClick={() => setMobileMenu(false)} />
+          <aside className="absolute left-0 top-0 flex h-full w-72 flex-col border-r border-slate-800 bg-slate-900 shadow-2xl">
+            <div className="flex h-16 items-center justify-between border-b border-slate-800 px-4">
+              <div className="flex items-center gap-3">
+                <Box className="text-emerald-400" size={24} />
+                <span className="font-bold tracking-tight">AI StroiApp</span>
+              </div>
+              <button onClick={() => setMobileMenu(false)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-800">
+                <X size={20} />
+              </button>
+            </div>
+            {selectedCity && (
+              <div className="border-b border-slate-800 p-3">
+                <select
+                  value={selectedCity.id}
+                  onChange={(e) => {
+                    const city = geoCities.find(c => c.id === e.target.value);
+                    if (city) setSelectedCity(city);
+                  }}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 outline-none"
+                >
+                  {geoRegions.map(region => (
+                    <optgroup key={region} label={region}>
+                      {geoCities.filter(c => c.region === region).map(city => (
+                        <option key={city.id} value={city.id}>{city.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            )}
+            <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => { setTab(t.id); setMobileMenu(false); }}
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${active ? "bg-emerald-500/10 text-emerald-400" : "text-slate-400 hover:bg-slate-800 hover:text-slate-200"}`}
+                  >
+                    <Icon size={20} />
+                    <span>{t.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="border-t border-slate-800 p-2">
+              <button onClick={() => { clearToken(); setAuthed(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400 hover:bg-slate-800">
+                <LogOut size={20} />
+                <span>Выйти</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
       {/* Main */}
       <main className="flex-1 overflow-auto">
         {/* Top bar */}
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-800 bg-slate-950/80 px-6 backdrop-blur">
-          <div className="flex items-center gap-4">
-            <h1 className="text-lg font-bold">{TABS.find((t) => t.id === tab)?.label}</h1>
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between gap-2 border-b border-slate-800 bg-slate-950/80 px-3 backdrop-blur md:px-6">
+          <div className="flex items-center gap-2 md:gap-4">
+            <button onClick={() => setMobileMenu(true)} className="rounded-lg p-2 text-slate-300 hover:bg-slate-800 md:hidden">
+              <Menu size={22} />
+            </button>
+            <h1 className="truncate text-base font-bold md:text-lg">{TABS.find((t) => t.id === tab)?.label}</h1>
           </div>
-          <div className="flex flex-1 items-center justify-center px-8">
+          <div className="hidden flex-1 items-center justify-center px-8 md:flex">
             <div className="relative w-full max-w-md">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
@@ -1363,22 +1431,22 @@ function App() {
               />
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
             <button onClick={syncWithOpenCart} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium hover:bg-slate-700">
-              <ShieldCheck size={16} /> OpenCart
+              <ShieldCheck size={16} /> <span className="hidden sm:inline">OpenCart</span>
             </button>
             <button onClick={launchAll} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400">
-              <Rocket size={16} /> Запустить
+              <Rocket size={16} /> <span className="hidden sm:inline">Запустить</span>
             </button>
           </div>
         </header>
 
-        <div className="p-6">
+        <div className="p-3 pb-24 md:p-6 md:pb-6">
           {/* DASHBOARD */}
           {tab === "dashboard" && (
             <div className="space-y-6">
               {/* KPI */}
-              <div className="grid gap-4 md:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 md:gap-4">
                 <KpiCard icon={Package} label="Товаров" value={products.length.toString()} color="text-emerald-400" />
                 <KpiCard icon={TrendingUp} label="Средний ROI" value={`${avgRoi}%`} color={avgRoi >= 120 ? "text-emerald-400" : "text-amber-400"} />
                 <KpiCard icon={Target} label="Топ товаров" value={goodProducts.toString()} color="text-emerald-400" />
@@ -4358,6 +4426,32 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
           </div>
         </div>
       )}
+
+      {/* Mobile bottom nav */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch border-t border-slate-800 bg-slate-900/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {["dashboard", "products", "opencart", "ai-seo"].map((id) => {
+          const t = TABS.find((x) => x.id === id);
+          const Icon = t.icon;
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition-colors ${active ? "text-emerald-400" : "text-slate-500"}`}
+            >
+              <Icon size={20} />
+              {t.label}
+            </button>
+          );
+        })}
+        <button
+          onClick={() => setMobileMenu(true)}
+          className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[10px] font-medium text-slate-500"
+        >
+          <Menu size={20} />
+          Меню
+        </button>
+      </nav>
     </div>
   );
 }
@@ -4384,8 +4478,8 @@ function LoginScreen({ onSuccess }) {
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-100 bg-grid">
-      <div className="w-full max-w-sm rounded-3xl border border-slate-700/40 glass p-8 shadow-2xl shadow-emerald-500/5">
+    <div className="flex h-screen items-center justify-center bg-slate-950 px-4 text-slate-100 bg-grid">
+      <div className="w-full max-w-sm rounded-3xl border border-slate-700/40 glass p-6 shadow-2xl shadow-emerald-500/5 md:p-8">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
             <ShieldCheck size={30} />
