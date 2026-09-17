@@ -3551,7 +3551,10 @@ function AiSeoPanel({ products, setProducts, filter, setFilter, loading, setLoad
 
   async function generateBatch(limit, source = "selected") {
     let ids;
-    if (source === "all_no_desc") {
+    if (source === "all") {
+      ids = products.map((p) => String(p.product_id));
+      if (limit > 0) ids = ids.slice(0, limit);
+    } else if (source === "all_no_desc") {
       ids = withoutDesc.map((p) => String(p.product_id));
       if (limit > 0) ids = ids.slice(0, limit);
     } else {
@@ -3611,6 +3614,7 @@ function AiSeoPanel({ products, setProducts, filter, setFilter, loading, setLoad
           <button onClick={() => generateBatch(50)} disabled={selectedIds.size === 0} className="rounded-lg bg-sky-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed">50</button>
           <button onClick={() => generateBatch(100)} disabled={selectedIds.size === 0} className="rounded-lg bg-sky-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed">100</button>
           <button onClick={() => generateBatch(0, "all_no_desc")} className="rounded-lg bg-amber-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-amber-400">Все без описания</button>
+          <button onClick={() => { if (window.confirm(`Сгенерировать SEO для ВСЕХ ${products.length} товаров? Существующие описания и meta будут перезаписаны.`)) generateBatch(0, "all"); }} className="rounded-lg bg-rose-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-rose-400">Все товары</button>
         </div>
       </div>
 
