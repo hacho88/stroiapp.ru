@@ -3910,25 +3910,41 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     }
   }
 
-  function openDetailEdit(p) {
+  async function fetchFullProduct(p) {
+    try {
+      const full = await apiGet("/opencart/products/" + p.product_id);
+      if (full && full.product_id) return { ...p, ...full };
+    } catch {}
+    return p;
+  }
+
+  async function openProductDetail(p) {
+    setSelProduct(p);
+    loadProductAttributes(p.product_id);
+    const full = await fetchFullProduct(p);
+    setSelProduct((prev) => (prev && prev.product_id === p.product_id ? full : prev));
+  }
+
+  async function openDetailEdit(p) {
+    const full = p.description === undefined ? await fetchFullProduct(p) : p;
     setDetailEdit(true);
     loadProductAttributes(p.product_id);
     setDetailForm({
-      product_id: p.product_id,
-      name: p.name || "",
-      sku: p.sku || "",
-      model: p.model || "",
-      cash_price: p.cash_price || "",
-      non_cash_price: p.non_cash_price || "",
-      price: p.price || "",
-      price_non_cash: p.price_non_cash || "",
-      quantity: p.quantity || "",
-      description: stripHtml(p.description || ""),
-      meta_title: p.meta_title || "",
-      meta_description: p.meta_description || "",
-      meta_keyword: p.meta_keyword || "",
-      image: p.image || "",
-      image_url: p.image_url || "",
+      product_id: full.product_id,
+      name: full.name || "",
+      sku: full.sku || "",
+      model: full.model || "",
+      cash_price: full.cash_price || "",
+      non_cash_price: full.non_cash_price || "",
+      price: full.price || "",
+      price_non_cash: full.price_non_cash || "",
+      quantity: full.quantity || "",
+      description: stripHtml(full.description || ""),
+      meta_title: full.meta_title || "",
+      meta_description: full.meta_description || "",
+      meta_keyword: full.meta_keyword || "",
+      image: full.image || "",
+      image_url: full.image_url || "",
     });
   }
 
@@ -4202,11 +4218,11 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
               return (
                 <div key={p.product_id} className="rounded-2xl border border-slate-700/30 glass glass-hover p-4 text-left">
                   <div className="flex gap-3">
-                    <div className="h-16 w-16 flex-shrink-0 rounded-lg bg-slate-800 overflow-hidden cursor-pointer" onClick={() => { setSelProduct(p); loadProductAttributes(p.product_id); }}>
+                    <div className="h-16 w-16 flex-shrink-0 rounded-lg bg-slate-800 overflow-hidden cursor-pointer" onClick={() => openProductDetail(p)}>
                       {p.image_url ? <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-slate-600"><Image size={20} /></div>}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold text-slate-200 cursor-pointer" onClick={() => { setSelProduct(p); loadProductAttributes(p.product_id); }}>{p.name}</div>
+                      <div className="truncate text-sm font-semibold text-slate-200 cursor-pointer" onClick={() => openProductDetail(p)}>{p.name}</div>
                       <div className="mt-0.5 text-xs text-slate-500">ID: {p.product_id} {p.sku ? "| SKU: " + p.sku : ""}</div>
                       <div className="mt-1 flex flex-wrap gap-1">
                         {p.has_description ? <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">SEO</span> : <span className="rounded bg-orange-500/20 px-1.5 py-0.5 text-[10px] font-bold text-orange-400">NO SEO</span>}

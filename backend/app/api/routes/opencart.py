@@ -377,7 +377,12 @@ async def hero_banner_update(payload: FileWritePayload):
 @router.get("/products/byCategory")
 async def products_by_category(category_id: int):
     try:
-        return await opencart_api.get_action("product/listByCategory", {"category_id": category_id})
+        data = await opencart_api.get_action("product/listByCategory", {"category_id": category_id})
+        items = data.get("products") or []
+        keep = ("product_id", "model", "sku", "name", "price", "price_non_cash", "cash_price",
+                "non_cash_price", "quantity", "image", "image_url", "status", "has_description", "has_meta")
+        slim = [{k: p.get(k) for k in keep} for p in items]
+        return {"status": data.get("status", "ok"), "count": len(slim), "products": slim}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
