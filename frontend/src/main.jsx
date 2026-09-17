@@ -4387,7 +4387,15 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
                 </div>
 
                 {/* Description */}
-                <div><div className="text-xs text-slate-500 mb-1">Описание товара</div><textarea value={detailForm.description} onChange={(e) => setDetailForm((p) => ({ ...p, description: e.target.value }))} rows={4} className="w-full rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500 resize-y" /></div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <div className="text-xs text-slate-500">Описание товара</div>
+                    <button onClick={() => generateSeo(detailForm.product_id)} disabled={generatingSeo} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50">
+                      <Sparkles size={14} />{generatingSeo ? "Генерация..." : "Генерировать"}
+                    </button>
+                  </div>
+                  <textarea value={detailForm.description} onChange={(e) => setDetailForm((p) => ({ ...p, description: e.target.value }))} rows={4} className="w-full rounded bg-slate-800 border border-slate-700 px-2 py-1.5 text-sm text-slate-200 outline-none focus:border-emerald-500 resize-y" />
+                </div>
 
                 {/* Attributes */}
                 <div className="flex items-center justify-between">
