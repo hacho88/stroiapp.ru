@@ -312,25 +312,25 @@ async def generate(payload: GeneratePayload):
 
         # DeepSeek prompt
         prompt = (
-            f"Napishi unikalnoe SEO-opisanie tovara dlya internet-magazina stroitelnyh materialov v Moskve i Moskovskoy oblasti.\n\n"
-            f"Tovar: {product_name}\n"
-            f"Kategoriya: {category_name}\n\n"
-            "Treboniya:\n"
-            "1. Opisanie: 400-600 znakov, unikalnoe, informativnoe\n"
-            "2. Vklyuchi geotargeting: Moskva, Moskovskaya oblast, dostavka, opt\n"
-            "3. Preimushchestva dlya stroiteley i remontnikov\n"
-            "4. Professionalnyy ton, dostupnyy yazyik\n"
-            "5. Prizyv k deystviyu v kontse\n"
-            "6. Meta title: 50-60 znakov\n"
-            "7. Meta description: 150-160 znakov\n"
-            "8. Meta keywords: 5-7 slov cherez zapyatuyu\n\n"
-            "Verny rezultat v formate JSON s polyami: description, meta_title, meta_description, meta_keyword"
+            f"Напиши уникальное SEO-описание товара для интернет-магазина строительных материалов в Москве и Московской области.\n\n"
+            f"Товар: {product_name}\n"
+            f"Категория: {category_name}\n\n"
+            "Требования:\n"
+            "1. Описание: 400-600 знаков, уникальное, информативное, на русском языке кириллицей\n"
+            "2. Включи геотаргетинг: Москва, Московская область, доставка, опт\n"
+            "3. Преимущества для строителей и ремонтников\n"
+            "4. Профессиональный тон, доступный язык\n"
+            "5. Призыв к действию в конце\n"
+            "6. Meta title: 50-60 знаков на русском\n"
+            "7. Meta description: 150-160 знаков на русском\n"
+            "8. Meta keywords: 5-7 слов через запятую на русском\n\n"
+            "Верни результат в формате JSON с полями: description, meta_title, meta_description, meta_keyword. Все тексты только на русском языке кириллицей."
         )
 
         ds_payload = {
             "model": "deepseek-chat",
             "messages": [
-                {"role": "system", "content": "Tyi - SEO-kopirayter dlya stroitelnyh materialov v Moskve. Piši na russkom."},
+                {"role": "system", "content": "Ты — SEO-копирайтер для строительных материалов в Москве. Пиши только на русском языке кириллицей."},
                 {"role": "user", "content": prompt}
             ],
             "temperature": 0.7,
