@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
-  AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, LayoutDashboard,
+  AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
   FileText, Folder, Image, MapPin, MessageSquare, MonitorCheck, Package, PenTool, Plus, Rocket, Save, Search, Send, Settings, ShieldCheck, ShoppingCart, Sparkles, Star, Tag, Users,
   RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap
 } from "lucide-react";
