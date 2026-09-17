@@ -4016,7 +4016,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     try {
       const data = await apiUpload("/opencart/images/upload", file);
       if (data.status === "uploaded" || data.path) {
-        setDetailForm((prev) => ({ ...prev, image: data.path, image_url: "" }));
+        setDetailForm((prev) => ({ ...prev, image: data.path, image_url: "https://stroiapp.ru/image/" + data.path }));
         addToast("Фото загружено", "success");
       } else {
         addToast("Ошибка загрузки фото", "error");
@@ -4049,9 +4049,10 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     };
     try {
       await apiPost("/opencart/products/update", payload);
-      setCatProducts((prev) => prev.map((p) => (p.product_id === detailForm.product_id ? { ...p, ...payload, image_url: detailForm.image ? (detailForm.image_url || "") : "" } : p)));
+      const newImageUrl = detailForm.image_url || (detailForm.image ? "https://stroiapp.ru/image/" + detailForm.image : "");
+      setCatProducts((prev) => prev.map((p) => (p.product_id === detailForm.product_id ? { ...p, ...payload, image_url: newImageUrl } : p)));
       if (selProduct && selProduct.product_id === detailForm.product_id) {
-        setSelProduct((prev) => ({ ...prev, ...payload }));
+        setSelProduct((prev) => ({ ...prev, ...payload, image_url: newImageUrl }));
       }
       addToast("Товар сохранён", "success");
       setDetailEdit(false);

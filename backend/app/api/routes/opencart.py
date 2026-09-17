@@ -353,7 +353,7 @@ async def category_update(payload: dict = Body(...)):
 async def image_upload(file: UploadFile = File(...)):
     try:
         content = await file.read()
-        return await opencart_api.upload_image(content, file.filename)
+        return await opencart_api.upload_image(content, file.filename, file.content_type or "image/jpeg")
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
