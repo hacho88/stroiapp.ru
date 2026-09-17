@@ -223,6 +223,7 @@ function App() {
 
   // Geo: load cities and detect user city
   React.useEffect(() => {
+    if (!authed) return;
     apiGet("/geo/cities").then((data) => {
       if (data.cities) setGeoCities(data.cities);
     }).catch(() => {});
@@ -232,7 +233,7 @@ function App() {
     apiGet("/geo/detect").then((data) => {
       if (data.city) setSelectedCity(data.city);
     }).catch(() => {});
-  }, []);
+  }, [authed]);
 
   React.useEffect(() => {
     if (tab !== 'opencart') return;
