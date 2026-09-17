@@ -208,6 +208,7 @@ function App() {
 
   React.useEffect(() => {
     if (mainRef.current) mainRef.current.scrollTo(0, 0);
+    window.scrollTo(0, 0);
   }, [tab]);
 
   React.useEffect(() => {
@@ -1289,7 +1290,7 @@ function App() {
   }
 
   return (
-    <div className="flex h-[100dvh] bg-slate-950 text-slate-100 bg-grid">
+    <div className="flex h-screen bg-slate-950 text-slate-100 bg-grid" style={{ height: "100dvh" }}>
       {/* Sidebar (desktop) */}
       <aside className={`${sidebarWidth} hidden md:flex flex-col border-r border-slate-800 bg-slate-900/80 backdrop-blur transition-all duration-300`}>
         <div className="flex h-16 items-center gap-3 border-b border-slate-800 px-4">
@@ -1343,7 +1344,7 @@ function App() {
             <Settings size={20} />
             {!collapsed && <span>Свернуть</span>}
           </button>
-          {!collapsed && <div className="px-3 pb-1 text-[10px] text-slate-600">v17.09-3</div>}
+          {!collapsed && <div className="px-3 pb-1 text-[10px] text-slate-600">v17.09-4</div>}
         </div>
       </aside>
 
@@ -4505,7 +4506,7 @@ function LoginScreen({ onSuccess }) {
   }
 
   return (
-    <div className="flex h-[100dvh] items-center justify-center bg-slate-950 px-4 text-slate-100 bg-grid">
+    <div className="flex h-screen items-center justify-center bg-slate-950 px-4 text-slate-100 bg-grid" style={{ height: "100dvh" }}>
       <div className="w-full max-w-sm rounded-3xl border border-slate-700/40 glass p-6 shadow-2xl shadow-emerald-500/5 md:p-8">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
@@ -4550,7 +4551,7 @@ function LoginScreen({ onSuccess }) {
             {busy ? "Вход..." : "Войти"}
           </button>
         </form>
-        <div className="mt-4 text-center text-[10px] text-slate-600">v17.09-3</div>
+        <div className="mt-4 text-center text-[10px] text-slate-600">v17.09-4</div>
       </div>
     </div>
   );
