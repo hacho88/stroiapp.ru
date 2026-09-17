@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     smtp_from_email: str = ""
     tenderguru_api_code: str = ""
     damia_api_key: str = ""
+    admin_login: str = "admin"
+    admin_password: str = "300425"
+    auth_secret: str = "stroiapp-auth-secret-2026"
 
     class Config:
         env_file = ".env"

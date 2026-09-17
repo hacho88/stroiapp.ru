@@ -1,17 +1,28 @@
 import asyncio
 import sys
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.routes import (
-    ai_deepseek, ai_seo, autosmeta, budget_roi, cache_warmer, clients_objects, competitors, competitors_bids,
+    ai_deepseek, ai_seo, auth, autosmeta, budget_roi, cache_warmer, clients_objects, competitors, competitors_bids,
     content_factory, dashboard, geo, lead, logistics, opencart, product, promotions, reviews,
     semantic, seo, site, site_builder, speculation, sync, telegram, tenders, yandex_metrika, yandex_webmaster,
 )
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith(f"{settings.api_prefix}/") and not path.startswith(f"{settings.api_prefix}/auth/"):
+        token = request.headers.get("x-auth-token", "")
+        if not auth.verify_token(token):
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,
@@ -21,6 +32,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(ai_deepseek.router, prefix=settings.api_prefix)
 app.include_router(site_builder.router, prefix=settings.api_prefix)
 app.include_router(ai_seo.router, prefix=settings.api_prefix)

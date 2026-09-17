@@ -7,7 +7,7 @@ import {
   RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap
 } from "lucide-react";
 import "./index.css";
-import { apiGet, apiPost, apiUpload, apiUrl } from "./lib/api";
+import { apiGet, apiPost, apiUpload, apiUrl, apiLogin, getToken } from "./lib/api";
 import SiteBuilder from "./components/SiteBuilder";
 import YandexWebmaster from "./components/YandexWebmaster";
 import { LayoutTemplate } from "lucide-react";
@@ -48,6 +48,7 @@ function roiColor(roi) {
 }
 
 function App() {
+  const [authed, setAuthed] = React.useState(!!getToken());
   const [tab, setTab] = React.useState("dashboard");
   const [products, setProducts] = React.useState([]);
   const [compare, setCompare] = React.useState([]);
@@ -198,13 +199,21 @@ function App() {
   }
 
   React.useEffect(() => {
+    const onExpired = () => setAuthed(false);
+    window.addEventListener("ai-auth-expired", onExpired);
+    return () => window.removeEventListener("ai-auth-expired", onExpired);
+  }, []);
+
+  React.useEffect(() => {
+    if (!authed) return;
     Promise.all([apiGet("/product/list"), apiGet("/dashboard/compare")])
       .then(([productData, compareData]) => {
         setProducts(productData);
         setCompare(compareData);
+        setLoading(false);
       })
-      .finally(() => setLoading(false));
-  }, []);
+      .catch(() => setLoading(false));
+  }, [authed]);
 
   // Geo: load cities and detect user city
   React.useEffect(() => {
@@ -1267,6 +1276,10 @@ function App() {
     .sort((a, b) => b.roi - a.roi);
 
   const sidebarWidth = collapsed ? "w-16" : "w-56";
+
+  if (!authed) {
+    return <LoginScreen onSuccess={() => setAuthed(true)} />;
+  }
 
   return (
     <div className="flex h-screen bg-slate-950 text-slate-100 bg-grid">
@@ -4345,6 +4358,78 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function LoginScreen({ onSuccess }) {
+  const [login, setLogin] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [error, setError] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (busy) return;
+    setError("");
+    setBusy(true);
+    try {
+      await apiLogin(login.trim(), password);
+      onSuccess();
+    } catch (err) {
+      setError(err.message || "Ошибка входа");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex h-screen items-center justify-center bg-slate-950 text-slate-100 bg-grid">
+      <div className="w-full max-w-sm rounded-3xl border border-slate-700/40 glass p-8 shadow-2xl shadow-emerald-500/5">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-400">
+            <ShieldCheck size={30} />
+          </div>
+          <h1 className="text-xl font-bold">AI StroiApp Manager</h1>
+          <p className="mt-1 text-sm text-slate-400">Войдите для продолжения</p>
+        </div>
+        <form onSubmit={submit} className="space-y-4">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Логин</label>
+            <input
+              value={login}
+              onChange={(e) => setLogin(e.target.value)}
+              autoFocus
+              autoComplete="username"
+              className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+              placeholder="admin"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-400">Пароль</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              className="w-full rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20"
+              placeholder="••••••"
+            />
+          </div>
+          {error && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-sm text-red-400">
+              <AlertCircle size={16} className="shrink-0" /> {error}
+            </div>
+          )}
+          <button
+            type="submit"
+            disabled={busy || !login.trim() || !password}
+            className="w-full rounded-xl bg-emerald-500 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Вход..." : "Войти"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }
