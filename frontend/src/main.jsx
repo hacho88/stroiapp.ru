@@ -3824,6 +3824,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   const [allAttributes, setAllAttributes] = React.useState([]);
   const [productAttrs, setProductAttrs] = React.useState([]);
   const [savingAttrs, setSavingAttrs] = React.useState(false);
+  const [catOpen, setCatOpen] = React.useState(false);
 
   const MARKUP = 1.285; // 28.5%
 
@@ -3841,12 +3842,14 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         });
         setCatTree(tree);
         setCatLoading(false);
+        if (!selCatId && tree.length) loadCategory(tree[0].category_id);
       })
       .catch((err) => { addToast("Ошибка загрузки категорий: " + err.message, "error"); setCatLoading(false); });
   }, []);
 
   function loadCategory(categoryId) {
     setSelCatId(categoryId);
+    setCatOpen(false);
     setCatLoading(true);
     apiGet("/opencart/products/byCategory?category_id=" + categoryId)
       .then((data) => { setCatProducts(data.products || []); setCatLoading(false); })
@@ -3940,10 +3943,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     if (!file) return;
     setUploadingImg(true);
     try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch(apiUrl("/opencart/images/upload"), { method: "POST", body: fd });
-      const data = await res.json();
+      const data = await apiUpload("/opencart/images/upload", file);
       if (data.status === "uploaded" || data.path) {
         setDetailForm((prev) => ({ ...prev, image: data.path, image_url: "" }));
         addToast("Фото загружено", "success");
@@ -4155,9 +4155,13 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
       {/* Sidebar */}
       <div className="space-y-4">
         <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-bold text-slate-200"><Folder size={16} className="text-emerald-400" />Категории</div>
+          <button onClick={() => setCatOpen((o) => !o)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold text-slate-200 lg:pointer-events-none">
+            <Folder size={16} className="text-emerald-400" />Категории
+            {selCatId && <span className="text-xs font-normal text-slate-500">#{selCatId}</span>}
+            <span className="ml-auto text-xs text-slate-500 lg:hidden">{catOpen ? "▲ скрыть" : "▼ выбрать"}</span>
+          </button>
           {catLoading && catTree.length === 0 ? <div className="text-sm text-slate-400">Загрузка...</div> : (
-            <div className="max-h-[calc(100dvh-200px)] overflow-auto space-y-0.5 pb-20 md:pb-0">{renderTree(catTree)}</div>
+            <div className={`${catOpen ? "" : "hidden"} lg:block max-h-[50vh] lg:max-h-[calc(100dvh-200px)] overflow-auto space-y-0.5 pb-4 lg:pb-0`}>{renderTree(catTree)}</div>
           )}
         </div>
       </div>
@@ -4185,7 +4189,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         {catLoading && catProducts.length === 0 ? (
           <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-400">Загрузка товаров...</div>
         ) : filteredProducts.length === 0 ? (
-          <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-500">{selCatId ? "В этой категории нет товаров" : "Выберите категорию слева"}</div>
+          <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-500">{selCatId ? "В этой категории нет товаров" : "Выберите категорию"}</div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filteredProducts.map((p) => {
