@@ -3867,7 +3867,11 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   const [editingProduct, setEditingProduct] = React.useState(null);
   const [savingId, setSavingId] = React.useState(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const [addForm, setAddForm] = React.useState({ name: "", sku: "", model: "", cash_price: "", non_cash_price: "", price: "", quantity: "1" });
+  const emptyAddForm = { name: "", sku: "", model: "", cash_price: "", non_cash_price: "", price: "", price_non_cash: "", quantity: "1", category_id: "", image: "", image_url: "", description: "", meta_title: "", meta_description: "", meta_keyword: "" };
+  const [addForm, setAddForm] = React.useState(emptyAddForm);
+  const [addAttrs, setAddAttrs] = React.useState([]);
+  const [generatingDraft, setGeneratingDraft] = React.useState(false);
+  const [uploadingAddImg, setUploadingAddImg] = React.useState(false);
   const [detailEdit, setDetailEdit] = React.useState(false);
   const [detailForm, setDetailForm] = React.useState(null);
   const [uploadingImg, setUploadingImg] = React.useState(false);
@@ -4155,8 +4159,70 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     loadAllAttributes();
   }, []);
 
+  function flattenCats(nodes, depth, out) {
+    depth = depth || 0; out = out || [];
+    for (const n of nodes || []) {
+      out.push({ category_id: n.category_id, name: n.name, depth });
+      if (n.children && n.children.length) flattenCats(n.children, depth + 1, out);
+    }
+    return out;
+  }
+
+  async function uploadAddImage(file) {
+    if (!file) return;
+    setUploadingAddImg(true);
+    try {
+      const data = await apiUpload("/opencart/images/upload", file);
+      if (data.status === "uploaded" || data.path) {
+        setAddForm((prev) => ({ ...prev, image: data.path, image_url: "https://stroiapp.ru/image/" + data.path }));
+        addToast("Фото загружено", "success");
+      } else {
+        addToast("Ошибка загрузки фото", "error");
+      }
+    } catch (err) {
+      addToast("Ошибка загрузки фото: " + err.message, "error");
+    } finally {
+      setUploadingAddImg(false);
+    }
+  }
+
+  async function generateDraft() {
+    if (!addForm.name) { addToast("Введите название товара", "error"); return; }
+    setGeneratingDraft(true);
+    try {
+      const catId = Number(addForm.category_id) || selCatId;
+      const cat = flattenCats(catTree).find((c) => String(c.category_id) === String(catId));
+      const data = await apiPost("/opencart/products/generateDraft", { name: addForm.name, model: addForm.model, category_name: cat ? cat.name : "" });
+      if (data.error) {
+        addToast("Ошибка генерации: " + data.error, "error");
+      } else {
+        setAddForm((prev) => ({
+          ...prev,
+          description: data.description || prev.description,
+          meta_title: data.meta_title || prev.meta_title,
+          meta_description: data.meta_description || prev.meta_description,
+          meta_keyword: data.meta_keyword || prev.meta_keyword,
+        }));
+        if (data.attributes && data.attributes.length) {
+          const norm = (s) => (s || "").toLowerCase().trim();
+          setAddAttrs(data.attributes.map((a) => {
+            const n = norm(a.name);
+            const m = allAttributes.find((x) => norm(x.name) === n) || allAttributes.find((x) => n && (norm(x.name).startsWith(n) || n.startsWith(norm(x.name))));
+            return { ...a, attribute_id: m ? String(m.attribute_id) : "" };
+          }));
+        }
+        addToast("Описание и характеристики сгенерированы", "success");
+      }
+    } catch (err) {
+      addToast("Ошибка генерации: " + err.message, "error");
+    } finally {
+      setGeneratingDraft(false);
+    }
+  }
+
   async function addProduct() {
-    if (!addForm.name || !selCatId) { addToast("Название и категория обязательны", "error"); return; }
+    const catId = Number(addForm.category_id) || selCatId;
+    if (!addForm.name || !catId) { addToast("Название и категория обязательны", "error"); return; }
     const cash = parseFloat(addForm.cash_price) || 0;
     const nonCash = parseFloat(addForm.non_cash_price) || 0;
     const price = parseFloat(addForm.price) || 0;
@@ -4170,15 +4236,28 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
       price,
       price_non_cash: priceNonCash,
       quantity: parseInt(addForm.quantity) || 1,
-      category_id: selCatId,
+      category_id: catId,
+      image: addForm.image || "",
+      description: addForm.description || "",
+      meta_title: addForm.meta_title || "",
+      meta_description: addForm.meta_description || "",
+      meta_keyword: addForm.meta_keyword || "",
       status: 1,
     };
     try {
-      await apiPost("/opencart/products/add", payload);
+      const res = await apiPost("/opencart/products/add", payload);
+      const newId = res && (res.product_id || res.id);
+      if (newId && addAttrs.length) {
+        const attrs = addAttrs.filter((a) => a.attribute_id && (a.text || "").trim() !== "");
+        if (attrs.length) {
+          try { await apiPost("/opencart/products/updateAttributes", { product_id: newId, attributes: attrs }); } catch (e) { console.error("attrs save", e); }
+        }
+      }
       addToast("Товар добавлен", "success");
       setShowAddForm(false);
-      setAddForm({ name: "", sku: "", model: "", cash_price: "", non_cash_price: "", price: "", price_non_cash: "", quantity: "1" });
-      loadCategory(selCatId);
+      setAddForm(emptyAddForm);
+      setAddAttrs([]);
+      loadCategory(catId);
     } catch (err) {
       addToast("Ошибка добавления: " + err.message, "error");
     }
@@ -4254,7 +4333,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
               <input value={prodSearch} onChange={(e) => setProdSearch(e.target.value)} placeholder="Поиск по товару..." className="bg-transparent text-sm outline-none text-slate-200 placeholder:text-slate-500 w-48" />
             </div>
             <div className="flex-1" />
-            <button onClick={() => setShowAddForm(true)} disabled={!selCatId} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"><Plus size={14} />Добавить</button>
+            <button onClick={() => { setAddForm((p) => ({ ...p, category_id: selCatId || "" })); setShowAddForm(true); }} disabled={!selCatId} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"><Plus size={14} />Добавить</button>
             <button onClick={exportCSV} disabled={catProducts.length === 0} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40"><Download size={14} />CSV</button>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">
               <Upload size={14} />CSV
@@ -4486,13 +4565,27 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
       {/* Add Product Modal */}
       {showAddForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowAddForm(false)}>
-          <div className="w-[95%] max-w-lg rounded-2xl border border-slate-700/50 bg-slate-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-[95%] max-w-lg max-h-[90dvh] overflow-y-auto rounded-2xl border border-slate-700/50 bg-slate-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between border-b border-slate-700 pb-3">
               <h3 className="text-lg font-bold text-white">Добавить товар</h3>
               <button onClick={() => setShowAddForm(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"><X size={20} /></button>
             </div>
             <div className="space-y-3">
               <div><div className="text-xs text-slate-500 mb-1">Название *</div><input value={addForm.name} onChange={(e) => setAddForm((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
+              <div><div className="text-xs text-slate-500 mb-1">Категория *</div>
+                <select value={addForm.category_id || selCatId || ""} onChange={(e) => setAddForm((p) => ({ ...p, category_id: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500">
+                  {flattenCats(catTree).map((c) => (<option key={c.category_id} value={c.category_id}>{"— ".repeat(c.depth)}{c.name}</option>))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-16 w-16 flex-shrink-0 rounded-lg bg-slate-800 overflow-hidden">
+                  {addForm.image_url || addForm.image ? <img src={addForm.image_url || ("https://stroiapp.ru/image/" + addForm.image)} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full w-full items-center justify-center text-slate-600"><Image size={20} /></div>}
+                </div>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 border border-slate-700">
+                  <Upload size={14} />{uploadingAddImg ? "Загрузка..." : "Загрузить фото"}
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadAddImage(f); e.target.value = ""; }} />
+                </label>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div><div className="text-xs text-slate-500 mb-1">SKU</div><input value={addForm.sku} onChange={(e) => setAddForm((p) => ({ ...p, sku: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
                 <div><div className="text-xs text-slate-500 mb-1">Модель</div><input value={addForm.model} onChange={(e) => setAddForm((p) => ({ ...p, model: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
@@ -4508,6 +4601,23 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
                 <div><div className="text-xs text-slate-500 mb-1">Безнал (+28.5%)</div><input type="number" value={addForm.price_non_cash} onChange={(e) => setAddForm((p) => ({ ...p, price_non_cash: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
                 <div><div className="text-xs text-slate-500 mb-1">Остаток</div><input type="number" value={addForm.quantity} onChange={(e) => setAddForm((p) => ({ ...p, quantity: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
               </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <div className="text-xs text-slate-500">Описание</div>
+                  <button onClick={generateDraft} disabled={generatingDraft || !addForm.name} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1 text-xs font-bold text-white hover:bg-indigo-400 disabled:opacity-50">
+                    <Sparkles size={14} />{generatingDraft ? "Генерация..." : "По названию"}
+                  </button>
+                </div>
+                <textarea value={addForm.description} onChange={(e) => setAddForm((p) => ({ ...p, description: e.target.value }))} rows={3} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500 resize-y" />
+              </div>
+              {addAttrs.length > 0 && (
+                <div>
+                  <div className="text-xs text-slate-500 mb-1">Характеристики ({addAttrs.length})</div>
+                  <div className="space-y-1 rounded-lg bg-slate-800/50 border border-slate-700/30 p-2 max-h-32 overflow-y-auto">
+                    {addAttrs.map((a, i) => (<div key={i} className="text-xs text-slate-300"><span className="text-slate-500">{a.name}:</span> {a.text}</div>))}
+                  </div>
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <button onClick={addProduct} className="flex-1 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400">Добавить</button>
                 <button onClick={() => setShowAddForm(false)} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700">Отмена</button>

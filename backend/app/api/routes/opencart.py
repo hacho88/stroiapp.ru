@@ -403,87 +403,87 @@ async def product_add(payload: dict = Body(...)):
         return {"status": "error", "detail": str(exc)}
 
 
+def _deepseek_seo(name: str, model: str = "", category_name: str = "", description_existing: str = ""):
+    import json as _json
+    import ssl as _ssl
+    import urllib.request as _urllib_req
+    from app.core.config import settings as _settings
+
+    ds_key = _settings.deepseek_api_key
+    if not ds_key:
+        return {"error": "DEEPSEEK_API_KEY не настроен"}
+
+    prompt_lines = [
+        "Ты SEO-копирайтер для интернет-магазина строительных материалов stroiapp.ru (Москва и МО).",
+        f"Товар: {name}",
+    ]
+    if model:
+        prompt_lines.append(f"Модель: {model}")
+    if category_name:
+        prompt_lines.append(f"Категория: {category_name}")
+    if description_existing:
+        prompt_lines.append(f"Существующее описание: {description_existing[:200]}")
+    prompt_lines.extend([
+        "",
+        "Сгенерируй уникальное SEO-описание для товара на русском языке.",
+        "Описание должно быть профессиональным, 2-3 абзаца, с упоминанием применения, преимуществ.",
+        "Упомяни: оптовые цены, доставка по Москве и МО, безналичный расчёт с НДС.",
+        "",
+        "Также сгенерируй характеристики товара (5-7 атрибутов).",
+        "",
+        "Верни результат в формате JSON с полями:",
+        "description (HTML), meta_title (до 60 символов), meta_description (150-160 символов),",
+        "meta_keyword (5-7 слов через запятую), attributes (массив объектов с полями name и text)",
+    ])
+    prompt = "\n".join(prompt_lines)
+
+    ds_payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "Ты — SEO-копирайтер для строительных материалов. Пиши на русском."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.7,
+        "max_tokens": 2000,
+        "response_format": {"type": "json_object"},
+    }
+
+    _ctx = _ssl.create_default_context()
+    _ctx.check_hostname = False
+    _ctx.verify_mode = _ssl.CERT_NONE
+    _data = _json.dumps(ds_payload).encode("utf-8")
+    _req = _urllib_req.Request(
+        "https://api.deepseek.com/v1/chat/completions",
+        data=_data,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {ds_key}"},
+        method="POST",
+    )
+    with _urllib_req.urlopen(_req, timeout=60, context=_ctx) as _resp:
+        result = _json.loads(_resp.read().decode("utf-8-sig"))
+
+    content = _json.loads(result["choices"][0]["message"]["content"])
+    return {
+        "description": content.get("description", ""),
+        "meta_title": content.get("meta_title", name),
+        "meta_description": content.get("meta_description", ""),
+        "meta_keyword": content.get("meta_keyword", ""),
+        "attributes": content.get("attributes", []),
+    }
+
+
 @router.post("/products/generateSeo")
 async def product_generate_seo(payload: dict = Body(...)):
     try:
         product = await opencart_api.get_action("product/get", {"product_id": payload.get("product_id")})
-        name = product.get("name", "Товар")
-        model = product.get("model", "")
-        category_name = product.get("category_name", "")
-        description_existing = product.get("description", "")
+        return _deepseek_seo(product.get("name", "Товар"), product.get("model", ""), product.get("category_name", ""), product.get("description", ""))
+    except Exception as exc:
+        return {"error": str(exc)}
 
-        # Generate via DeepSeek AI
-        import json as _json
-        import ssl as _ssl
-        import urllib.request as _urllib_req
-        from app.core.config import settings as _settings
 
-        ds_key = _settings.deepseek_api_key
-        if not ds_key:
-            return {"error": "DEEPSEEK_API_KEY не настроен"}
-
-        prompt_lines = [
-            "Ты SEO-копирайтер для интернет-магазина строительных материалов stroiapp.ru (Москва и МО).",
-            f"Товар: {name}",
-        ]
-        if model:
-            prompt_lines.append(f"Модель: {model}")
-        if category_name:
-            prompt_lines.append(f"Категория: {category_name}")
-        if description_existing:
-            prompt_lines.append(f"Существующее описание: {description_existing[:200]}")
-        prompt_lines.extend([
-            "",
-            "Сгенерируй уникальное SEO-описание для товара на русском языке.",
-            "Описание должно быть профессиональным, 2-3 абзаца, с упоминанием применения, преимуществ.",
-            "Упомяни: оптовые цены, доставка по Москве и МО, безналичный расчёт с НДС.",
-            "",
-            "Также сгенерируй характеристики товара (5-7 атрибутов).",
-            "",
-            "Верни результат в формате JSON с полями:",
-            "description (HTML), meta_title (до 60 символов), meta_description (150-160 символов),",
-            "meta_keyword (5-7 слов через запятую), attributes (массив объектов с полями name и text)",
-        ])
-        prompt = "\n".join(prompt_lines)
-
-        ds_payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": "Ты — SEO-копирайтер для строительных материалов. Пиши на русском."},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.7,
-            "max_tokens": 2000,
-            "response_format": {"type": "json_object"},
-        }
-
-        _ctx = _ssl.create_default_context()
-        _ctx.check_hostname = False
-        _ctx.verify_mode = _ssl.CERT_NONE
-        _data = _json.dumps(ds_payload).encode("utf-8")
-        _req = _urllib_req.Request(
-            "https://api.deepseek.com/v1/chat/completions",
-            data=_data,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {ds_key}"},
-            method="POST",
-        )
-        with _urllib_req.urlopen(_req, timeout=60, context=_ctx) as _resp:
-            result = _json.loads(_resp.read().decode("utf-8-sig"))
-
-        content = _json.loads(result["choices"][0]["message"]["content"])
-        description = content.get("description", "")
-        meta_title = content.get("meta_title", name)
-        meta_description = content.get("meta_description", "")
-        meta_keyword = content.get("meta_keyword", "")
-        attrs = content.get("attributes", [])
-
-        return {
-            "description": description,
-            "meta_title": meta_title,
-            "meta_description": meta_description,
-            "meta_keyword": meta_keyword,
-            "attributes": attrs,
-        }
+@router.post("/products/generateDraft")
+async def product_generate_draft(payload: dict = Body(...)):
+    try:
+        return _deepseek_seo(payload.get("name", "Товар"), payload.get("model", ""), payload.get("category_name", ""), "")
     except Exception as exc:
         return {"error": str(exc)}
 
