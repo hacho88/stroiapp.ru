@@ -207,7 +207,7 @@ function App() {
   }, []);
 
   React.useEffect(() => {
-    if (mainRef.current) mainRef.current.scrollTo({ top: 0 });
+    if (mainRef.current) mainRef.current.scrollTo(0, 0);
   }, [tab]);
 
   React.useEffect(() => {
@@ -1343,6 +1343,7 @@ function App() {
             <Settings size={20} />
             {!collapsed && <span>Свернуть</span>}
           </button>
+          {!collapsed && <div className="px-3 pb-1 text-[10px] text-slate-600">v17.09-3</div>}
         </div>
       </aside>
 
@@ -4549,6 +4550,7 @@ function LoginScreen({ onSuccess }) {
             {busy ? "Вход..." : "Войти"}
           </button>
         </form>
+        <div className="mt-4 text-center text-[10px] text-slate-600">v17.09-3</div>
       </div>
     </div>
   );
