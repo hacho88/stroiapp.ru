@@ -158,7 +158,7 @@ def count_needing_images() -> int:
     init_db()
     with _connect() as connection:
         return connection.execute(
-            "SELECT COUNT(*) AS c FROM imported_products WHERE image_path != '' AND (image = '' OR image IS NULL OR (image NOT LIKE 'catalog/%' AND image != 'NOIMAGE'))"
+            "SELECT COUNT(*) AS c FROM imported_products WHERE (image_path != '' OR (image != '' AND image IS NOT NULL)) AND image NOT LIKE 'catalog/%' AND image != 'NOIMAGE'"
         ).fetchone()["c"]
 
 
@@ -166,7 +166,7 @@ def get_needing_images(limit: int = 100, offset: int = 0) -> list[dict]:
     init_db()
     with _connect() as connection:
         rows = connection.execute(
-            "SELECT id, name, image, image_path FROM imported_products WHERE image_path != '' AND (image = '' OR image IS NULL OR (image NOT LIKE 'catalog/%' AND image != 'NOIMAGE')) ORDER BY id ASC LIMIT ? OFFSET ?",
+            "SELECT id, name, image, image_path FROM imported_products WHERE (image_path != '' OR (image != '' AND image IS NOT NULL)) AND image NOT LIKE 'catalog/%' AND image != 'NOIMAGE' ORDER BY id ASC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
     return [dict(r) for r in rows]
