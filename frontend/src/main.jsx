@@ -114,6 +114,9 @@ function App() {
   const [allProductsQuery, setAllProductsQuery] = React.useState("");
   const [allProductsPage, setAllProductsPage] = React.useState(1);
   const [allProductsTotal, setAllProductsTotal] = React.useState(0);
+  const [allProductsCat, setAllProductsCat] = React.useState({ cat0: "", cat1: "", cat2: "" });
+  const [importCatTree, setImportCatTree] = React.useState([]);
+  const [importCatOpen, setImportCatOpen] = React.useState({});
   const [pushingId, setPushingId] = React.useState(null);
   const [selectedOcProduct, setSelectedOcProduct] = React.useState(null);
   const [ocProductLoading, setOcProductLoading] = React.useState(false);
@@ -275,6 +278,7 @@ function App() {
 
   React.useEffect(() => {
     if (tab !== 'all-products') return;
+    if (!importCatTree.length) loadImportCatTree();
     const t = setTimeout(() => { loadAllProducts(allProductsPage, allProductsQuery); }, 300);
     return () => clearTimeout(t);
   }, [tab, allProductsPage, allProductsQuery]);
@@ -691,10 +695,14 @@ function App() {
     }
   }
 
-  async function loadAllProducts(page = allProductsPage, search = allProductsQuery) {
+  async function loadAllProducts(page = allProductsPage, search = allProductsQuery, cat = allProductsCat) {
     setAllProductsLoading(true);
     try {
-      const data = await apiGet(`/import/products?limit=50&page=${page}&search=${encodeURIComponent(search)}`);
+      const params = new URLSearchParams({ limit: "50", page: String(page), search });
+      if (cat.cat0) params.set("cat0", cat.cat0);
+      if (cat.cat1) params.set("cat1", cat.cat1);
+      if (cat.cat2) params.set("cat2", cat.cat2);
+      const data = await apiGet(`/import/products?${params.toString()}`);
       setAllProducts(data.products || []);
       setAllProductsTotal(data.total || 0);
       setAllProductsLoaded(true);
@@ -703,6 +711,20 @@ function App() {
     } finally {
       setAllProductsLoading(false);
     }
+  }
+
+  async function loadImportCatTree() {
+    try {
+      const data = await apiGet("/import/products/categories");
+      setImportCatTree(data.tree || []);
+    } catch (e) { /* ignore */ }
+  }
+
+  function selectImportCat(cat0, cat1 = "", cat2 = "") {
+    const cat = { cat0, cat1, cat2 };
+    setAllProductsCat(cat);
+    setAllProductsPage(1);
+    loadAllProducts(1, allProductsQuery, cat);
   }
 
   async function pushImported(id) {
@@ -1624,13 +1646,36 @@ function App() {
             const pages = Math.max(1, Math.ceil(allProductsTotal / perPage));
             const page = Math.min(allProductsPage, pages);
             const catPath = (p) => [p.cat0, p.cat1, p.cat2].filter(Boolean).join(" › ");
+            const toggle = (key) => setImportCatOpen((o) => ({ ...o, [key]: !o[key] }));
+            const CatNode = ({ node, path }) => {
+              const full = [...path, node.name];
+              const key = full.join("|");
+              const hasKids = node.children && node.children.length > 0;
+              const open = importCatOpen[key];
+              const sel = allProductsCat.cat0 === (full[0] || "") && allProductsCat.cat1 === (full[1] || "") && allProductsCat.cat2 === (full[2] || "");
+              return (
+                <div>
+                  <div className={`flex items-center gap-1 rounded px-2 py-1 text-sm cursor-pointer hover:bg-slate-800/50 ${sel ? "bg-emerald-500/15 text-emerald-400" : "text-slate-300"}`}>
+                    {hasKids ? <button onClick={() => toggle(key)} className="w-4 shrink-0 text-slate-500">{open ? "▾" : "▸"}</button> : <span className="w-4 shrink-0" />}
+                    <button onClick={() => selectImportCat(full[0] || "", full[1] || "", full[2] || "")} className="flex-1 truncate text-left">{node.name}</button>
+                    <span className="text-xs text-slate-500">{node.count}</span>
+                  </div>
+                  {hasKids && open && <div className="ml-4 border-l border-slate-800 pl-1">{node.children.map((ch) => <CatNode key={ch.name} node={ch} path={full} />)}</div>}
+                </div>
+              );
+            };
             return (
-              <div className="space-y-6">
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-6">
+              <div className="flex gap-6">
+                <div className="w-72 shrink-0 rounded-2xl border border-slate-700/30 glass p-4 self-start max-h-[80vh] overflow-auto">
+                  <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-bold">Категории</h3>{allProductsCat.cat0 && <button onClick={() => selectImportCat("")} className="text-xs text-emerald-400 hover:underline">Сбросить</button>}</div>
+                  <div onClick={() => selectImportCat("")} className={`mb-1 cursor-pointer rounded px-2 py-1 text-sm ${!allProductsCat.cat0 ? "bg-emerald-500/15 text-emerald-400" : "text-slate-300 hover:bg-slate-800/50"}`}>Все категории <span className="text-xs text-slate-500">{allProductsTotal}</span></div>
+                  {importCatTree.map((n) => <CatNode key={n.name} node={n} path={[]} />)}
+                </div>
+                <div className="flex-1 rounded-2xl border border-slate-700/30 glass glass-hover p-6">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-lg font-bold">Все товары</h2>
-                      <p className="text-sm text-slate-400">База импортированных товаров — {allProductsLoaded ? `${allProductsTotal} шт.` : "не загружено"}. Нажми «+», чтобы добавить товар на сайт.</p>
+                      <p className="text-sm text-slate-400">База импортированных товаров — {allProductsLoaded ? `${allProductsTotal} шт.` : "не загружено"}{allProductsCat.cat0 ? ` · ${[allProductsCat.cat0, allProductsCat.cat1, allProductsCat.cat2].filter(Boolean).join(" › ")}` : ""}. Нажми «+», чтобы добавить товар на сайт.</p>
                     </div>
                     <button onClick={() => loadAllProducts(page, allProductsQuery)} disabled={allProductsLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
                       {allProductsLoading ? "Загрузка..." : "Обновить"}

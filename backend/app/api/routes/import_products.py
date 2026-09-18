@@ -34,11 +34,19 @@ async def import_stats():
         return {"status": "error", "detail": str(exc)}
 
 
+@router.get("/import/products/categories")
+async def import_categories():
+    try:
+        return {"tree": import_store.category_tree()}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
 @router.get("/import/products")
-async def import_list(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", pushed: int | None = None):
+async def import_list(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None):
     try:
         limit = max(1, min(500, limit))
-        return import_store.list_products(limit=limit, page=page, search=search, cat0=cat0, pushed=pushed)
+        return import_store.list_products(limit=limit, page=page, search=search, cat0=cat0, cat1=cat1, cat2=cat2, pushed=pushed)
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 

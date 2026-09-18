@@ -87,7 +87,7 @@ def bulk_insert(products: list[dict]) -> dict:
     return {"inserted": inserted, "skipped": skipped}
 
 
-def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", pushed: int | None = None) -> dict:
+def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None) -> dict:
     init_db()
     where = []
     params: list = []
@@ -98,6 +98,12 @@ def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = 
     if cat0:
         where.append("cat0 = ?")
         params.append(cat0)
+    if cat1:
+        where.append("cat1 = ?")
+        params.append(cat1)
+    if cat2:
+        where.append("cat2 = ?")
+        params.append(cat2)
     if pushed is not None:
         where.append("pushed = ?")
         params.append(pushed)
@@ -110,6 +116,46 @@ def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = 
             params + [limit, offset],
         ).fetchall()
     return {"total": total, "page": page, "limit": limit, "products": [dict(r) for r in rows]}
+
+
+def category_tree() -> list[dict]:
+    """Nested category tree cat0 -> cat1 -> cat2 with product counts."""
+    init_db()
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT cat0, cat1, cat2, COUNT(*) AS c FROM imported_products GROUP BY cat0, cat1, cat2 ORDER BY cat0, cat1, cat2"
+        ).fetchall()
+    tree: dict = {}
+    order: list = []
+    for r in rows:
+        c0 = r["cat0"] or "Без категории"
+        c1 = r["cat1"] or ""
+        c2 = r["cat2"] or ""
+        if c0 not in tree:
+            tree[c0] = {"name": c0, "count": 0, "children": {}, "_order": []}
+            order.append(c0)
+        node0 = tree[c0]
+        node0["count"] += r["c"]
+        if not c1:
+            continue
+        if c1 not in node0["children"]:
+            node0["children"][c1] = {"name": c1, "count": 0, "children": {}}
+            node0["_order"].append(c1)
+        node1 = node0["children"][c1]
+        node1["count"] += r["c"]
+        if not c2:
+            continue
+        if c2 not in node1["children"]:
+            node1["children"][c2] = {"name": c2, "count": 0, "children": {}}
+        node1["children"][c2]["count"] += r["c"]
+
+    def finalize(node):
+        kids = node.get("children", {})
+        node["children"] = [finalize(kids[k]) for k in sorted(kids.keys())]
+        node.pop("_order", None)
+        return node
+
+    return [finalize(tree[k]) for k in sorted(tree.keys())]
 
 
 def get_product(item_id: int) -> dict | None:
