@@ -1647,7 +1647,7 @@ function App() {
                           <tbody>
                             {allProducts.map((p) => (
                               <tr key={p.id} className="border-t border-slate-800/50 hover:bg-slate-800/30">
-                                <td className="py-2 pr-2"><div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image || ""}><Package size={16} /></div></td>
+                                <td className="py-2 pr-2">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}</td>
                                 <td className="py-2 pr-2"><div className="max-w-md truncate font-medium" title={p.name}>{p.name || "Без названия"}</div><div className="text-xs text-slate-500">xml_id: {p.xml_id}{p.prop_type ? ` · ${p.prop_type}` : ""}</div></td>
                                 <td className="py-2 pr-2 text-xs text-slate-400"><div className="max-w-[220px] truncate" title={catPath(p)}>{catPath(p) || "—"}</div></td>
                                 <td className="py-2 pr-2 text-right font-medium">{money(Number(p.price || 0))}</td>
