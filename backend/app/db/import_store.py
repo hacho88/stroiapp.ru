@@ -145,3 +145,28 @@ def stats() -> dict:
         pushed = connection.execute("SELECT COUNT(*) AS c FROM imported_products WHERE pushed = 1").fetchone()["c"]
         cats = connection.execute("SELECT cat0, COUNT(*) AS c FROM imported_products GROUP BY cat0 ORDER BY c DESC").fetchall()
     return {"total": total, "pushed": pushed, "categories": [{"name": r["cat0"], "count": r["c"]} for r in cats]}
+
+
+def set_image(item_id: int, image_path: str) -> None:
+    init_db()
+    with _connect() as connection:
+        connection.execute("UPDATE imported_products SET image = ? WHERE id = ?", (image_path, item_id))
+
+
+def count_needing_images() -> int:
+    """Products that have a source image_path but no uploaded OpenCart image yet."""
+    init_db()
+    with _connect() as connection:
+        return connection.execute(
+            "SELECT COUNT(*) AS c FROM imported_products WHERE image_path != '' AND (image = '' OR image IS NULL OR (image NOT LIKE 'catalog/%' AND image != 'NOIMAGE'))"
+        ).fetchone()["c"]
+
+
+def get_needing_images(limit: int = 100, offset: int = 0) -> list[dict]:
+    init_db()
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT id, name, image, image_path FROM imported_products WHERE image_path != '' AND (image = '' OR image IS NULL OR (image NOT LIKE 'catalog/%' AND image != 'NOIMAGE')) ORDER BY id ASC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+    return [dict(r) for r in rows]

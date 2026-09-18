@@ -1,3 +1,7 @@
+import asyncio
+import ssl
+import urllib.request
+
 from fastapi import APIRouter, Body
 from fastapi.responses import JSONResponse
 
@@ -5,6 +9,73 @@ from app.db import import_store
 from app.services.opencart_api import opencart_api
 
 router = APIRouter()
+
+IMAGE_SOURCE = "https://globalsnab.com"
+_image_job = {"running": False, "done": 0, "failed": 0, "total": 0}
+
+_ssl_ctx = ssl.create_default_context()
+_ssl_ctx.check_hostname = False
+_ssl_ctx.verify_mode = ssl.CERT_NONE
+
+
+def _download(url: str) -> bytes | None:
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=30, context=_ssl_ctx) as resp:
+            if resp.status != 200:
+                return None
+            data = resp.read()
+            return data if len(data) > 500 else None
+    except Exception:
+        return None
+
+
+async def _fetch_images_worker():
+    _image_job["running"] = True
+    _image_job["done"] = 0
+    _image_job["failed"] = 0
+    try:
+        offset = 0
+        while True:
+            batch = import_store.get_needing_images(limit=50, offset=0)
+            if not batch:
+                break
+            for item in batch:
+                src = IMAGE_SOURCE + item["image_path"]
+                data = await asyncio.get_event_loop().run_in_executor(None, _download, src)
+                if not data:
+                    _image_job["failed"] += 1
+                    import_store.set_image(item["id"], "NOIMAGE")
+                    continue
+                ext = (item["image_path"].rsplit(".", 1)[-1] or "jpg").lower()
+                fname = f"import_{item['id']}.{ext if ext in ('jpg','jpeg','png','gif','webp') else 'jpg'}"
+                res = await opencart_api.upload_image(data, fname, "image/jpeg")
+                path = res.get("path") or ""
+                if res.get("status") == "uploaded" and path:
+                    import_store.set_image(item["id"], path)
+                    _image_job["done"] += 1
+                else:
+                    _image_job["failed"] += 1
+                await asyncio.sleep(0.05)
+            offset += 50
+            _image_job["total"] = import_store.count_needing_images() + _image_job["done"] + _image_job["failed"]
+    finally:
+        _image_job["running"] = False
+
+
+@router.post("/import/products/fetch-images")
+async def fetch_images():
+    if _image_job["running"]:
+        return {"status": "ok", "running": True, **_image_job}
+    _image_job["total"] = import_store.count_needing_images()
+    asyncio.create_task(_fetch_images_worker())
+    return {"status": "ok", "started": True, **_image_job}
+
+
+@router.get("/import/products/image-status")
+async def image_status():
+    remaining = import_store.count_needing_images()
+    return {**_image_job, "remaining": remaining}
 
 
 @router.get("/import/products/stats")
