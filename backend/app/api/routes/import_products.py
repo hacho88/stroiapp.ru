@@ -51,6 +51,17 @@ async def import_list(limit: int = 50, page: int = 1, search: str = "", cat0: st
         return {"status": "error", "detail": str(exc)}
 
 
+@router.get("/import/products/{item_id}")
+async def import_get(item_id: int):
+    try:
+        p = import_store.get_product(item_id)
+        if not p:
+            return {"status": "error", "detail": "not found"}
+        return p
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
 @router.post("/import/products/bulk")
 async def import_bulk(payload: dict = Body(...)):
     try:

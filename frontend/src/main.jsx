@@ -118,6 +118,8 @@ function App() {
   const [importCatTree, setImportCatTree] = React.useState([]);
   const [importCatOpen, setImportCatOpen] = React.useState({});
   const [pushingId, setPushingId] = React.useState(null);
+  const [selImportProduct, setSelImportProduct] = React.useState(null);
+  const [selImportLoading, setSelImportLoading] = React.useState(false);
   const [selectedOcProduct, setSelectedOcProduct] = React.useState(null);
   const [ocProductLoading, setOcProductLoading] = React.useState(false);
   const [banners, setBanners] = React.useState([]);
@@ -725,6 +727,20 @@ function App() {
     setAllProductsCat(cat);
     setAllProductsPage(1);
     loadAllProducts(1, allProductsQuery, cat);
+  }
+
+  async function openImportProduct(id) {
+    setSelImportLoading(true);
+    setSelImportProduct({ id });
+    try {
+      const data = await apiGet(`/import/products/${id}`);
+      if (data && data.id) setSelImportProduct(data);
+      else setSelImportProduct(null);
+    } catch (e) {
+      setSelImportProduct(null);
+    } finally {
+      setSelImportLoading(false);
+    }
   }
 
   async function pushImported(id) {
@@ -1665,6 +1681,7 @@ function App() {
               );
             };
             return (
+              <>
               <div className="flex gap-6">
                 <div className="w-72 shrink-0 rounded-2xl border border-slate-700/30 glass p-4 self-start max-h-[80vh] overflow-auto">
                   <div className="mb-2 flex items-center justify-between"><h3 className="text-sm font-bold">Категории</h3>{allProductsCat.cat0 && <button onClick={() => selectImportCat("")} className="text-xs text-emerald-400 hover:underline">Сбросить</button>}</div>
@@ -1691,7 +1708,7 @@ function App() {
                           <thead className="text-slate-400"><tr><th className="pb-2">Фото</th><th>Название</th><th>Категория</th><th className="text-right">Цена</th><th className="text-right">Вес</th><th className="text-center">На сайт</th></tr></thead>
                           <tbody>
                             {allProducts.map((p) => (
-                              <tr key={p.id} className="border-t border-slate-800/50 hover:bg-slate-800/30">
+                              <tr key={p.id} onClick={() => openImportProduct(p.id)} className="cursor-pointer border-t border-slate-800/50 hover:bg-slate-800/30">
                                 <td className="py-2 pr-2">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}</td>
                                 <td className="py-2 pr-2"><div className="max-w-md truncate font-medium" title={p.name}>{p.name || "Без названия"}</div><div className="text-xs text-slate-500">xml_id: {p.xml_id}{p.prop_type ? ` · ${p.prop_type}` : ""}</div></td>
                                 <td className="py-2 pr-2 text-xs text-slate-400"><div className="max-w-[220px] truncate" title={catPath(p)}>{catPath(p) || "—"}</div></td>
@@ -1701,7 +1718,7 @@ function App() {
                                   {p.pushed ? (
                                     <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-400"><CheckCircle size={13} /> #{p.product_id}</span>
                                   ) : (
-                                    <button onClick={() => pushImported(p.id)} disabled={pushingId === p.id} title="Добавить на сайт" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">
+                                    <button onClick={(e) => { e.stopPropagation(); pushImported(p.id); }} disabled={pushingId === p.id} title="Добавить на сайт" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 disabled:opacity-40">
                                       {pushingId === p.id ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={16} />}
                                     </button>
                                   )}
@@ -1725,6 +1742,74 @@ function App() {
                   )}
                 </div>
               </div>
+              {selImportProduct && (
+                <div onClick={() => setSelImportProduct(null)} className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm">
+                  <div onClick={(e) => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+                    {selImportLoading || !selImportProduct.name ? (
+                      <div className="py-16 text-center text-slate-500"><RefreshCw size={22} className="mx-auto animate-spin" /></div>
+                    ) : (() => {
+                      const p = selImportProduct;
+                      const dims = [p.length, p.width, p.height].every((v) => Number(v) > 0) ? `${p.length}×${p.width}×${p.height} мм` : "";
+                      const attrs = [
+                        ["Артикул (SKU)", p.sku], ["xml_id", p.xml_id], ["Тип", p.prop_type], ["Применение", p.prop_app],
+                        ["Вес", p.weight ? `${(p.weight / 1000).toFixed(2)} кг` : ""], ["Габариты", dims], ["Код свойства", p.prop_216],
+                      ].filter(([, v]) => v);
+                      return (
+                        <>
+                          <div className="mb-4 flex items-start justify-between gap-4">
+                            <div>
+                              <h2 className="text-xl font-bold leading-snug">{p.name}</h2>
+                              <div className="mt-1 text-sm text-slate-400">{catPath(p) || "—"}</div>
+                            </div>
+                            <button onClick={() => setSelImportProduct(null)} className="rounded-lg bg-slate-800 px-3 py-1.5 text-slate-300 hover:bg-slate-700">✕</button>
+                          </div>
+                          <div className="grid gap-6 md:grid-cols-[240px_1fr]">
+                            <div>
+                              {p.image && String(p.image).startsWith('catalog/') ? (
+                                <img src={"https://stroiapp.ru/image/" + p.image} alt={p.name} className="w-full rounded-xl border border-slate-700 object-cover" />
+                              ) : (
+                                <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-slate-600"><Package size={48} /></div>
+                              )}
+                              <div className="mt-4 rounded-xl bg-slate-800/60 p-4">
+                                <div className="text-2xl font-bold text-emerald-400">{money(Number(p.price || 0))}</div>
+                                <div className="mt-1 text-xs text-slate-400">цена из выгрузки</div>
+                              </div>
+                              {p.pushed ? (
+                                <div className="mt-3 flex items-center justify-center gap-1 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-400"><CheckCircle size={15} /> На сайте #{p.product_id}</div>
+                              ) : (
+                                <button onClick={() => pushImported(p.id)} disabled={pushingId === p.id} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
+                                  {pushingId === p.id ? <RefreshCw size={15} className="animate-spin" /> : <Plus size={16} />} Добавить на сайт
+                                </button>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              {attrs.length > 0 && (
+                                <div className="mb-5">
+                                  <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Характеристики</h3>
+                                  <div className="overflow-hidden rounded-xl border border-slate-800">
+                                    {attrs.map(([k, v], i) => (
+                                      <div key={k} className={`flex justify-between gap-4 px-3 py-2 text-sm ${i % 2 ? "bg-slate-800/40" : ""}`}>
+                                        <span className="text-slate-400">{k}</span><span className="text-right font-medium">{v}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              {p.description ? (
+                                <div>
+                                  <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Описание</h3>
+                                  <div className="prose-sm max-w-none rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-300 [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: p.description }} />
+                                </div>
+                              ) : <div className="text-sm text-slate-500">Описание отсутствует</div>}
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+              </>
             );
           })()}
 
