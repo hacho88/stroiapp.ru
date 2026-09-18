@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import (
     ai_deepseek, ai_seo, auth, autosmeta, budget_roi, cache_warmer, clients_objects, competitors, competitors_bids,
-    content_factory, dashboard, geo, lead, logistics, opencart, product, promotions, reviews,
+    content_factory, dashboard, geo, import_products, lead, logistics, opencart, product, promotions, reviews,
     semantic, seo, site, site_builder, speculation, sync, telegram, tenders, yandex_metrika, yandex_webmaster,
 )
 from app.core.config import settings
@@ -58,6 +58,7 @@ app.include_router(content_factory.router, prefix=settings.api_prefix)
 app.include_router(clients_objects.router, prefix=settings.api_prefix)
 app.include_router(sync.router, prefix=settings.api_prefix)
 app.include_router(logistics.router, prefix=settings.api_prefix)
+app.include_router(import_products.router, prefix=settings.api_prefix)
 app.include_router(yandex_webmaster.router, prefix=settings.api_prefix)
 app.include_router(yandex_metrika.router, prefix=settings.api_prefix)
 
