@@ -15,7 +15,7 @@ import { LayoutTemplate } from "lucide-react";
 const budgets = [5000, 10000, 20000, 50000, 100000];
 const TABS = [
   { id: "dashboard", label: "Дашборд", icon: LayoutDashboard },
-  { id: "products", label: "Товары", icon: Package },
+  { id: "products", label: "Товары на сайте", icon: Package },
   { id: "campaigns", label: "Реклама", icon: Target },
   { id: "seo", label: "SEO", icon: Sparkles },
   { id: "competitors", label: "Конкуренты", icon: Eye },
@@ -35,6 +35,7 @@ const TABS = [
   { id: "sync", label: "Синхронизация", icon: RefreshCw },
   { id: "webmaster", label: "Вебмастер", icon: Globe },
   { id: "tools", label: "Инструменты", icon: Zap },
+  { id: "all-products", label: "Все товары", icon: Box },
 ];
 
 function money(value) {
@@ -107,6 +108,11 @@ function App() {
   const [orderDetailLoading, setOrderDetailLoading] = React.useState(false);
   const [ocProducts, setOcProducts] = React.useState([]);
   const [ocProductQuery, setOcProductQuery] = React.useState("");
+  const [allProducts, setAllProducts] = React.useState([]);
+  const [allProductsLoading, setAllProductsLoading] = React.useState(false);
+  const [allProductsLoaded, setAllProductsLoaded] = React.useState(false);
+  const [allProductsQuery, setAllProductsQuery] = React.useState("");
+  const [allProductsPage, setAllProductsPage] = React.useState(1);
   const [selectedOcProduct, setSelectedOcProduct] = React.useState(null);
   const [ocProductLoading, setOcProductLoading] = React.useState(false);
   const [banners, setBanners] = React.useState([]);
@@ -264,6 +270,12 @@ function App() {
     }, 30000);
     return () => clearInterval(interval);
   }, [tab, ocDataLoading]);
+
+  React.useEffect(() => {
+    if (tab === 'all-products' && !allProductsLoaded && !allProductsLoading) {
+      loadAllProducts();
+    }
+  }, [tab]);
 
   React.useEffect(() => {
     if (tab === 'sync') {
@@ -674,6 +686,27 @@ function App() {
       setSettings(settingsData.settings || null);
     } finally {
       setOcDataLoading(false);
+    }
+  }
+
+  async function loadAllProducts() {
+    setAllProductsLoading(true);
+    try {
+      const all = [];
+      const limit = 500;
+      for (let page = 1; page <= 200; page += 1) {
+        const data = await apiGet(`/opencart/products/list?limit=${limit}&page=${page}`);
+        const items = data.products || [];
+        all.push(...items);
+        if (items.length < limit) break;
+      }
+      setAllProducts(all);
+      setAllProductsLoaded(true);
+      setAllProductsPage(1);
+    } catch (e) {
+      addToast("Ошибка загрузки товаров", "error");
+    } finally {
+      setAllProductsLoading(false);
     }
   }
 
@@ -1572,6 +1605,66 @@ function App() {
               addToast={addToast}
             />
           )}
+
+          {/* ALL PRODUCTS */}
+          {tab === "all-products" && (() => {
+            const q = allProductsQuery.trim().toLowerCase();
+            const filtered = allProducts.filter((p) => !q || (p.name || "").toLowerCase().includes(q) || (p.model || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q));
+            const perPage = 50;
+            const pages = Math.max(1, Math.ceil(filtered.length / perPage));
+            const page = Math.min(allProductsPage, pages);
+            const rows = filtered.slice((page - 1) * perPage, page * perPage);
+            const imgBase = "https://stroiapp.ru/image/";
+            return (
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-6">
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h2 className="text-lg font-bold">Все товары</h2>
+                      <p className="text-sm text-slate-400">Полный каталог OpenCart — {allProductsLoaded ? `${allProducts.length} товаров` : "не загружен"}.</p>
+                    </div>
+                    <button onClick={loadAllProducts} disabled={allProductsLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
+                      {allProductsLoading ? "Загрузка..." : "Обновить"}
+                    </button>
+                  </div>
+                  <input value={allProductsQuery} onChange={(e) => { setAllProductsQuery(e.target.value); setAllProductsPage(1); }} placeholder="Поиск по названию, модели, SKU..." className="mb-4 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
+                  {allProductsLoading && !allProductsLoaded ? (
+                    <div className="py-10 text-center text-slate-500">Загружаю все товары...</div>
+                  ) : (
+                    <>
+                      <div className="overflow-auto">
+                        <table className="w-full text-left text-sm">
+                          <thead className="text-slate-400"><tr><th className="pb-2">Фото</th><th>Название</th><th>Модель / SKU</th><th className="text-right">Цена</th><th className="text-right">Остаток</th><th>Статус</th></tr></thead>
+                          <tbody>
+                            {rows.map((p) => (
+                              <tr key={p.product_id} className="border-t border-slate-800/50 hover:bg-slate-800/30">
+                                <td className="py-2 pr-2">{p.image ? <img src={imgBase + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600"><Package size={16} /></div>}</td>
+                                <td className="py-2 pr-2"><div className="max-w-md truncate font-medium">{p.name || "Без названия"}</div><div className="text-xs text-slate-500">ID: {p.product_id}</div></td>
+                                <td className="py-2 pr-2 text-slate-400"><div>{p.model || "—"}</div><div className="text-xs text-slate-500">{p.sku || ""}</div></td>
+                                <td className="py-2 pr-2 text-right font-medium">{money(Number(p.price || 0))}</td>
+                                <td className="py-2 pr-2 text-right text-slate-400">{p.quantity || 0}</td>
+                                <td className="py-2"><span className={`badge ${String(p.status) === '1' ? 'badge-active' : 'badge-inactive'}`}><span className="badge-dot"></span>{String(p.status) === '1' ? 'Вкл' : 'Выкл'}</span></td>
+                              </tr>
+                            ))}
+                            {!rows.length && <tr><td colSpan={6} className="py-8 text-center text-slate-500">{allProductsLoaded ? "Ничего не найдено" : "Нажми «Обновить»"}</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                      {pages > 1 && (
+                        <div className="mt-4 flex items-center justify-between text-sm">
+                          <span className="text-slate-400">Показано {rows.length} из {filtered.length} · стр. {page}/{pages}</span>
+                          <div className="flex gap-2">
+                            <button onClick={() => setAllProductsPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700 disabled:opacity-40">← Назад</button>
+                            <button onClick={() => setAllProductsPage((p) => Math.min(pages, p + 1))} disabled={page >= pages} className="rounded bg-slate-800 px-3 py-1 hover:bg-slate-700 disabled:opacity-40">Вперёд →</button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* CAMPAIGNS */}
           {tab === "campaigns" && (
