@@ -1798,7 +1798,7 @@ function App() {
                               {p.description ? (
                                 <div>
                                   <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-400">Описание</h3>
-                                  <div className="prose-sm max-w-none rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-sm leading-relaxed text-slate-300 [&_img]:max-w-full" dangerouslySetInnerHTML={{ __html: p.description }} />
+                                  <div className="prose-sm max-w-none rounded-xl border border-slate-800 bg-slate-950/50 p-4 text-sm leading-relaxed [&_img]:max-w-full [&_*]:!bg-transparent [&_*]:!text-slate-300 [&_a]:!text-emerald-400 [&_a]:underline" dangerouslySetInnerHTML={{ __html: p.description }} />
                                 </div>
                               ) : <div className="text-sm text-slate-500">Описание отсутствует</div>}
                             </div>
