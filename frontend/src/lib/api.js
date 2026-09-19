@@ -19,13 +19,26 @@ function authHeaders(extra = {}) {
   return token ? { ...extra, "X-Auth-Token": token } : extra;
 }
 
-function handleResponse(response) {
+async function handleResponse(response) {
   if (response.status === 401) {
     clearToken();
     window.dispatchEvent(new Event("ai-auth-expired"));
     throw new Error("Требуется авторизация");
   }
-  if (!response.ok) throw new Error(`API error: ${response.status}`);
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const data = await response.json();
+      if (data && data.detail) {
+        detail = Array.isArray(data.detail)
+          ? data.detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+          : String(data.detail);
+      } else if (data && data.error) {
+        detail = String(data.error);
+      }
+    } catch { /* тело не JSON */ }
+    throw new Error(detail ? `${detail} (HTTP ${response.status})` : `API error: ${response.status}`);
+  }
   return response.json();
 }
 

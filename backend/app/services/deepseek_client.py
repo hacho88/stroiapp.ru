@@ -5,7 +5,7 @@ class DeepSeekClient:
     def __init__(self) -> None:
         self.api_key = settings.deepseek_api_key
         self.base_url = "https://api.deepseek.com/v1"
-        self.client = httpx.AsyncClient(timeout=120.0)
+        self.client = httpx.AsyncClient(timeout=300.0)
 
     async def chat(self, prompt: str, model: str = "deepseek-chat", max_tokens: int = 4096, temperature: float = 0.7, system: str = "") -> str:
         if not self.api_key:
@@ -32,7 +32,7 @@ class DeepSeekClient:
             data = response.json()
             return data["choices"][0]["message"]["content"].strip()
         except Exception as exc:
-            return f"[DeepSeek error: {exc}]"
+            return f"[DeepSeek error: {type(exc).__name__}: {exc}]"
 
     async def generate_article(self, topic: str) -> str:
         system = "Ты — SEO-копирайтер для строительного магазина в Москве. Пиши на русском языке."

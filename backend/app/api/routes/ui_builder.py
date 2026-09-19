@@ -67,13 +67,22 @@ def clean_ai_json(raw_text: str):
     try:
         return json.loads(candidate)
     except Exception:
-        # последняя попытка — самый широкий массив
-        m = re.search(r"\[.*\]", text, re.DOTALL)
-        if m:
+        pass
+    # salvage: обрезанный массив — закрыть на последнем полном объекте
+    if candidate.startswith("["):
+        cut = candidate.rfind("}")
+        while cut != -1:
             try:
-                return json.loads(m.group(0))
+                return json.loads(candidate[:cut + 1] + "]")
             except Exception:
-                return None
+                cut = candidate.rfind("}", 0, cut)
+    # последняя попытка — самый широкий массив
+    m = re.search(r"\[.*\]", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(0))
+        except Exception:
+            return None
     return None
 
 
@@ -130,12 +139,12 @@ async def interfaces_generate(req: GenerateRequest):
     raw = await deepseek_client.chat(
         prompt=req.prompt + context,
         model="deepseek-chat",
-        max_tokens=4096,
+        max_tokens=8192,
         temperature=0.4,
         system=SYSTEM_PROMPT,
     )
-    if raw.startswith("[DeepSeek error"):
-        raise HTTPException(status_code=502, detail=raw)
+    if not raw or raw.startswith("[DeepSeek error"):
+        raise HTTPException(status_code=502, detail=raw or "DeepSeek вернул пустой ответ")
 
     data = clean_ai_json(raw)
     elements = normalize_elements(data)
