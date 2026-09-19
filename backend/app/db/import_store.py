@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -12,8 +13,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _db():
+    """Yield a connection, commit on success, always close (frees the fd)."""
+    connection = _connect()
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def init_db() -> None:
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS imported_products (
@@ -51,7 +63,7 @@ def bulk_insert(products: list[dict]) -> dict:
     init_db()
     inserted = 0
     skipped = 0
-    with _connect() as connection:
+    with _db() as connection:
         for p in products:
             try:
                 connection.execute(
@@ -109,7 +121,7 @@ def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = 
         params.append(pushed)
     where_sql = (" WHERE " + " AND ".join(where)) if where else ""
     offset = max(0, (page - 1) * limit)
-    with _connect() as connection:
+    with _db() as connection:
         total = connection.execute(f"SELECT COUNT(*) AS c FROM imported_products{where_sql}", params).fetchone()["c"]
         rows = connection.execute(
             f"SELECT * FROM imported_products{where_sql} ORDER BY id ASC LIMIT ? OFFSET ?",
@@ -121,7 +133,7 @@ def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = 
 def category_tree() -> list[dict]:
     """Nested category tree cat0 -> cat1 -> cat2 with product counts."""
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             "SELECT cat0, cat1, cat2, COUNT(*) AS c FROM imported_products GROUP BY cat0, cat1, cat2 ORDER BY cat0, cat1, cat2"
         ).fetchall()
@@ -160,33 +172,33 @@ def category_tree() -> list[dict]:
 
 def get_product(item_id: int) -> dict | None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         row = connection.execute("SELECT * FROM imported_products WHERE id = ?", (item_id,)).fetchone()
     return dict(row) if row else None
 
 
 def mark_pushed(item_id: int, product_id: int) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute("UPDATE imported_products SET pushed = 1, product_id = ? WHERE id = ?", (product_id, item_id))
 
 
 def delete_product(item_id: int) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute("DELETE FROM imported_products WHERE id = ?", (item_id,))
 
 
 def clear_all() -> int:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         cur = connection.execute("DELETE FROM imported_products")
         return cur.rowcount
 
 
 def stats() -> dict:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         total = connection.execute("SELECT COUNT(*) AS c FROM imported_products").fetchone()["c"]
         pushed = connection.execute("SELECT COUNT(*) AS c FROM imported_products WHERE pushed = 1").fetchone()["c"]
         cats = connection.execute("SELECT cat0, COUNT(*) AS c FROM imported_products GROUP BY cat0 ORDER BY c DESC").fetchall()
@@ -195,14 +207,14 @@ def stats() -> dict:
 
 def set_image(item_id: int, image_path: str) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute("UPDATE imported_products SET image = ? WHERE id = ?", (image_path, item_id))
 
 
 def count_needing_images() -> int:
     """Products that have a source image_path but no uploaded OpenCart image yet."""
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         return connection.execute(
             "SELECT COUNT(*) AS c FROM imported_products WHERE (image_path != '' OR (image != '' AND image IS NOT NULL)) AND image NOT LIKE 'catalog/%' AND image != 'NOIMAGE'"
         ).fetchone()["c"]
@@ -210,7 +222,7 @@ def count_needing_images() -> int:
 
 def get_needing_images(limit: int = 100, offset: int = 0) -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             "SELECT id, name, image, image_path FROM imported_products WHERE (image_path != '' OR (image != '' AND image IS NOT NULL)) AND image NOT LIKE 'catalog/%' AND image != 'NOIMAGE' ORDER BY id ASC LIMIT ? OFFSET ?",
             (limit, offset),

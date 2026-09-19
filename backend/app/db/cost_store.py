@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -12,8 +13,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _db():
+    """Yield a connection, commit on success, always close (frees the fd)."""
+    connection = _connect()
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def init_db() -> None:
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS product_costs (
@@ -35,14 +47,14 @@ def init_db() -> None:
 
 def get_all_costs() -> dict[str, tuple[float, float, float, float]]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute("SELECT sku, cost_price_cash, cost_price_cashless, retail_price, wholesale_price FROM product_costs").fetchall()
     return {row["sku"]: (float(row["cost_price_cash"]), float(row["cost_price_cashless"]), float(row["retail_price"]), float(row["wholesale_price"])) for row in rows}
 
 
 def save_costs(sku: str, cost_price_cash: float, cost_price_cashless: float, retail_price: float, wholesale_price: float) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             INSERT INTO product_costs (sku, cost_price_cash, cost_price_cashless, retail_price, wholesale_price, updated_at)

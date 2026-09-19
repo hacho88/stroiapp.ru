@@ -1,5 +1,6 @@
 import sqlite3
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "app.db"
@@ -12,8 +13,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _db():
+    """Yield a connection, commit on success, always close (frees the fd)."""
+    connection = _connect()
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def init_blocks() -> None:
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS page_blocks (
@@ -32,7 +44,7 @@ def init_blocks() -> None:
 
 def list_blocks(page: str = "home") -> list[dict]:
     init_blocks()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             "SELECT * FROM page_blocks WHERE page = ? AND is_active = 1 ORDER BY sort_order ASC",
             (page,),
@@ -53,7 +65,7 @@ def list_blocks(page: str = "home") -> list[dict]:
 
 def get_block(block_id: int) -> dict | None:
     init_blocks()
-    with _connect() as connection:
+    with _db() as connection:
         row = connection.execute(
             "SELECT * FROM page_blocks WHERE id = ?", (block_id,)
         ).fetchone()
@@ -72,7 +84,7 @@ def get_block(block_id: int) -> dict | None:
 
 def create_block(page: str, type: str, content: dict, sort_order: int = 0) -> int:
     init_blocks()
-    with _connect() as connection:
+    with _db() as connection:
         cursor = connection.execute(
             "INSERT INTO page_blocks (page, type, content, sort_order) VALUES (?, ?, ?, ?)",
             (page, type, json.dumps(content, ensure_ascii=False), sort_order),
@@ -103,7 +115,7 @@ def update_block(block_id: int, page: str | None = None, type: str | None = None
     if not fields:
         return False
     values.append(block_id)
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             f"UPDATE page_blocks SET {', '.join(fields)} WHERE id = ?", values
         )
@@ -113,7 +125,7 @@ def update_block(block_id: int, page: str | None = None, type: str | None = None
 
 def delete_block(block_id: int) -> bool:
     init_blocks()
-    with _connect() as connection:
+    with _db() as connection:
         cursor = connection.execute("DELETE FROM page_blocks WHERE id = ?", (block_id,))
         connection.commit()
         return cursor.rowcount > 0
@@ -121,7 +133,7 @@ def delete_block(block_id: int) -> bool:
 
 def reorder_blocks(page: str, ordered_ids: list[int]) -> bool:
     init_blocks()
-    with _connect() as connection:
+    with _db() as connection:
         for sort_order, block_id in enumerate(ordered_ids):
             connection.execute(
                 "UPDATE page_blocks SET sort_order = ? WHERE id = ? AND page = ?",

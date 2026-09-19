@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 
 DB_PATH = Path(__file__).resolve().parents[2] / "data" / "app.db"
@@ -11,8 +12,19 @@ def _connect() -> sqlite3.Connection:
     return connection
 
 
+@contextmanager
+def _db():
+    """Yield a connection, commit on success, always close (frees the fd)."""
+    connection = _connect()
+    try:
+        yield connection
+        connection.commit()
+    finally:
+        connection.close()
+
+
 def init_db() -> None:
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS competitors (
@@ -74,7 +86,7 @@ def init_db() -> None:
 
 def add_competitor(name: str, url: str = "") -> int:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         cursor = connection.execute(
             "INSERT INTO competitors (name, url) VALUES (?, ?)",
             (name, url),
@@ -84,14 +96,14 @@ def add_competitor(name: str, url: str = "") -> int:
 
 def list_competitors() -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute("SELECT * FROM competitors ORDER BY created_at DESC").fetchall()
     return [dict(row) for row in rows]
 
 
 def add_price(competitor_id: int, sku: str, name: str, price: float) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute(
             """
             INSERT INTO competitor_prices (competitor_id, sku, name, price, scraped_at)
@@ -104,7 +116,7 @@ def add_price(competitor_id: int, sku: str, name: str, price: float) -> None:
 
 def get_prices(competitor_id: int) -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             "SELECT * FROM competitor_prices WHERE competitor_id = ? ORDER BY scraped_at DESC",
             (competitor_id,),
@@ -114,7 +126,7 @@ def get_prices(competitor_id: int) -> list[dict]:
 
 def get_comparison() -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             """
             SELECT cp.sku, cp.name, cp.price AS competitor_price, c.name AS competitor_name,
@@ -129,7 +141,7 @@ def get_comparison() -> list[dict]:
 
 def clear_competitor_products(competitor_id: int) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         connection.execute("DELETE FROM competitor_products WHERE competitor_id = ?", (competitor_id,))
 
 
@@ -137,7 +149,7 @@ def save_competitor_products(competitor_id: int, products: list[dict]) -> int:
     init_db()
     clear_competitor_products(competitor_id)
     imported = 0
-    with _connect() as connection:
+    with _db() as connection:
         for p in products:
             connection.execute(
                 """
@@ -162,7 +174,7 @@ def save_competitor_products(competitor_id: int, products: list[dict]) -> int:
 
 def get_competitor_products(competitor_id: int, limit: int = 100, offset: int = 0) -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             """
             SELECT * FROM competitor_products
@@ -177,7 +189,7 @@ def get_competitor_products(competitor_id: int, limit: int = 100, offset: int = 
 
 def get_competitor_product_stats(competitor_id: int) -> dict:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         total = connection.execute(
             "SELECT COUNT(*) as cnt FROM competitor_products WHERE competitor_id = ?", (competitor_id,)
         ).fetchone()["cnt"]
@@ -198,7 +210,7 @@ def get_competitor_product_stats(competitor_id: int) -> dict:
 def get_all_competitor_products_for_ai(limit: int = 500) -> list[dict]:
     """Все товары конкурентов для AI-анализа."""
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         rows = connection.execute(
             """
             SELECT cp.*, c.name as competitor_name, c.url as competitor_url
@@ -214,7 +226,7 @@ def get_all_competitor_products_for_ai(limit: int = 500) -> list[dict]:
 
 def clear_competitor_ads(competitor_id: int = None) -> None:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         if competitor_id:
             connection.execute("DELETE FROM competitor_ads WHERE competitor_id = ?", (competitor_id,))
         else:
@@ -225,7 +237,7 @@ def save_competitor_ads(competitor_id: int, ads: list[dict]) -> int:
     init_db()
     clear_competitor_ads(competitor_id)
     imported = 0
-    with _connect() as connection:
+    with _db() as connection:
         for ad in ads:
             connection.execute(
                 """
@@ -249,7 +261,7 @@ def save_competitor_ads(competitor_id: int, ads: list[dict]) -> int:
 
 def get_competitor_ads(competitor_id: int = None, limit: int = 200) -> list[dict]:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         if competitor_id:
             rows = connection.execute(
                 """
@@ -278,7 +290,7 @@ def get_competitor_ads(competitor_id: int = None, limit: int = 200) -> list[dict
 
 def get_ads_stats() -> dict:
     init_db()
-    with _connect() as connection:
+    with _db() as connection:
         total = connection.execute("SELECT COUNT(*) as cnt FROM competitor_ads").fetchone()["cnt"]
         top_keywords = connection.execute(
             """
