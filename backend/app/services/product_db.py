@@ -225,5 +225,46 @@ class ProductDB:
                 })
         return results
 
+    def sync_from_opencart(self, rows: list[dict]) -> int:
+        """Наполнить/обновить каталог из живого OpenCart (product/list).
+
+        Сохраняет уже заданные себестоимость/метрики: каталожные поля
+        (название, фото, остаток, product_id) обновляются, розничная цена
+        подставляется только если ещё не задана вручную.
+        """
+        count = 0
+        for row in rows:
+            try:
+                pid = int(row.get("product_id") or 0)
+                price = float(row.get("price") or 0)
+                qty = int(float(row.get("quantity") or 0))
+            except (TypeError, ValueError):
+                continue
+            sku = (row.get("sku") or "").strip() or (str(pid).zfill(4) if pid else "")
+            if not sku:
+                continue
+            existing = self._products.get(sku)
+            if existing:
+                existing.product_id = pid or existing.product_id
+                existing.name = row.get("name") or existing.name
+                existing.model = row.get("model") or existing.model
+                existing.image = row.get("image") or existing.image
+                existing.quantity = qty
+                if price > 0 and not existing.retail_price:
+                    existing.retail_price = price
+            else:
+                self._products[sku] = Product(
+                    product_id=pid,
+                    sku=sku,
+                    name=row.get("name") or row.get("model") or f"Товар {sku}",
+                    model=row.get("model") or "",
+                    image=row.get("image") or "",
+                    quantity=qty,
+                    retail_price=price,
+                )
+            count += 1
+        self._apply_saved_costs()
+        return count
+
 
 product_db = ProductDB()

@@ -25,6 +25,31 @@ def product_prices(limit: int = 100):
     return {"status": "ok", "count": len(products), "products": [{"sku": p.sku, "name": p.name, "retail_price": p.retail_price, "wholesale_price": p.wholesale_price} for p in products]}
 
 
+async def sync_products_from_site() -> int:
+    """Наполнить ProductDB («Товары на сайте») из живого OpenCart — постранично."""
+    total, page = 0, 1
+    while True:
+        data = await opencart_api.get_action("product/list", {"limit": 500, "page": page})
+        rows = (data or {}).get("products") or []
+        if not rows:
+            break
+        total += product_db.sync_from_opencart(rows)
+        if len(rows) < 500 or page >= 60:  # cap ~30k товаров
+            break
+        page += 1
+    return total
+
+
+@router.post("/syncFromSite")
+async def sync_from_site():
+    """Ручная синхронизация «Товары на сайте» с живым каталогом OpenCart."""
+    try:
+        total = await sync_products_from_site()
+        return {"status": "ok", "synced": total, "total": len(product_db.list_products())}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
 @router.get("/list")
 def list_products(
     search: str = "",

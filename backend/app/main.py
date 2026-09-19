@@ -79,6 +79,15 @@ async def start_background_tasks():
     blog_auto = get_blog_auto_publisher()
     asyncio.create_task(blog_auto.start())
 
+    # Наполняем «Товары на сайте» реальным каталогом OpenCart — витрина читает отсюда
+    async def _sync():
+        try:
+            n = await product.sync_products_from_site()
+            print(f"[storefront] ProductDB synced from OpenCart: {n} products")
+        except Exception as exc:
+            print("[storefront] product sync error:", exc)
+    asyncio.create_task(_sync())
+
 
 @app.get("/health")
 def health():
