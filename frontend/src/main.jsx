@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
-  AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
+  AlertCircle, Award, BarChart3, Blocks, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
   FileText, Folder, Image, MapPin, MessageSquare, MonitorCheck, Package, PenTool, Plus, Rocket, Save, Search, Send, Settings, ShieldCheck, ShoppingCart, Sparkles, Star, Tag, Users,
   RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap, Menu, LogOut
 } from "lucide-react";
@@ -10,6 +10,7 @@ import "./index.css";
 import { apiGet, apiPost, apiUpload, apiUrl, apiLogin, getToken, clearToken } from "./lib/api";
 import SiteBuilder from "./components/SiteBuilder";
 import YandexWebmaster from "./components/YandexWebmaster";
+import InterfaceBuilder from "./components/InterfaceBuilder";
 import { LayoutTemplate } from "lucide-react";
 
 const budgets = [5000, 10000, 20000, 50000, 100000];
@@ -22,6 +23,7 @@ const TABS = [
   { id: "opencart", label: "OpenCart", icon: ShoppingCart },
   { id: "site", label: "Сайт", icon: MonitorCheck },
   { id: "site-builder", label: "Конструктор", icon: LayoutTemplate },
+  { id: "interfaces", label: "Интерфейс", icon: Blocks },
   { id: "files", label: "Файлы сайта", icon: Folder },
   { id: "ai-seo", label: "AI SEO", icon: Wand2 },
   { id: "competitors-bids", label: "Ставки", icon: Award },
@@ -3562,6 +3564,9 @@ function App() {
 
           {/* SITE BUILDER */}
           {tab === "site-builder" && <SiteBuilder addToast={addToast} />}
+
+          {/* INTERFACE BUILDER */}
+          {tab === "interfaces" && <InterfaceBuilder addToast={addToast} />}
 
           {/* YANDEX WEBMASTER */}
           {tab === "webmaster" && <YandexWebmaster />}
