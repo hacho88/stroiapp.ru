@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 
 from app.db import import_store
 from app.services.opencart_api import opencart_api
+from app.services.product_db import product_db
 
 router = APIRouter()
 
@@ -153,6 +154,19 @@ async def import_push(item_id: int):
         pid = int(res.get("product_id") or res.get("id") or 0)
         if pid:
             import_store.mark_pushed(item_id, pid)
+            # Кладём в «Товары на сайте» (ProductDB) — сразу виден на moscow.stroiapp.ru
+            try:
+                product_db.sync_from_opencart([{
+                    "product_id": pid,
+                    "sku": payload["sku"],
+                    "name": payload["name"],
+                    "model": payload["model"],
+                    "price": payload["price"],
+                    "quantity": payload["quantity"],
+                    "image": payload["image"],
+                }])
+            except Exception:
+                pass
             return {"status": "ok", "product_id": pid, "category_id": cat_id}
         return {"status": "error", "detail": res}
     except Exception as exc:

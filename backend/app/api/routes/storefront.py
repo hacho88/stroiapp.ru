@@ -30,6 +30,7 @@ def _public(p) -> dict:
         "id": p.product_id,
         "sku": p.sku,
         "name": p.name,
+        "model": p.model,
         "price": p.retail_price,
         "image": _img(p.image),
         "quantity": p.quantity,
@@ -48,6 +49,23 @@ def storefront_products(limit: int = 48, category_id: int | None = None, search:
         items = [p for p in items if q in (p.name or "").lower() or q in (p.sku or "").lower()]
     out = [_public(p) for p in items if p.name and p.retail_price > 0]
     return {"status": "ok", "count": len(out[:limit]), "products": out[:limit]}
+
+
+@router.get("/product/{key}")
+def storefront_product(key: str):
+    """Карточка товара по product_id или sku — для страницы товара на витрине."""
+    items = product_db.list_products()
+    p = None
+    if key.isdigit():
+        pid = int(key)
+        p = next((x for x in items if x.product_id == pid), None)
+    if p is None:
+        p = product_db.get_by_sku(key)
+    if p is None:
+        p = next((x for x in items if str(x.sku) == key or str(x.product_id) == key), None)
+    if not p or not p.name:
+        return {"status": "error", "detail": "not found"}
+    return {"status": "ok", "product": _public(p)}
 
 
 _cat_cache = {"ts": 0.0, "data": []}
