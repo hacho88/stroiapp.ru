@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from app.api.routes import (
     ai_deepseek, ai_seo, auth, autosmeta, budget_roi, cache_warmer, clients_objects, competitors, competitors_bids,
     content_factory, dashboard, geo, import_products, lead, logistics, opencart, product, promotions, reviews,
-    semantic, seo, site, site_builder, speculation, sync, telegram, tenders, ui_builder, yandex_metrika, yandex_webmaster,
+    semantic, seo, site, site_builder, speculation, storefront, sync, telegram, tenders, ui_builder, yandex_metrika, yandex_webmaster,
 )
 from app.core.config import settings
 
@@ -18,7 +18,11 @@ app = FastAPI(title=settings.app_name)
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path.startswith(f"{settings.api_prefix}/") and not path.startswith(f"{settings.api_prefix}/auth/"):
+    public = (
+        path.startswith(f"{settings.api_prefix}/auth/")
+        or path.startswith(f"{settings.api_prefix}/storefront/")
+    )
+    if path.startswith(f"{settings.api_prefix}/") and not public:
         token = request.headers.get("x-auth-token", "")
         if not auth.verify_token(token):
             return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -62,6 +66,7 @@ app.include_router(logistics.router, prefix=settings.api_prefix)
 app.include_router(import_products.router, prefix=settings.api_prefix)
 app.include_router(yandex_webmaster.router, prefix=settings.api_prefix)
 app.include_router(yandex_metrika.router, prefix=settings.api_prefix)
+app.include_router(storefront.router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")
