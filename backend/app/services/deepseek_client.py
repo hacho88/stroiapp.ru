@@ -1,5 +1,17 @@
+import asyncio
+
 import httpx
 from app.core.config import settings
+
+# Транзиентные ошибки соединения — на них делаем retry
+_RETRYABLE = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.RemoteProtocolError,
+)
 
 class DeepSeekClient:
     def __init__(self) -> None:
@@ -14,25 +26,35 @@ class DeepSeekClient:
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        try:
-            response = await self.client.post(
-                f"{self.base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"].strip()
-        except Exception as exc:
-            return f"[DeepSeek error: {type(exc).__name__}: {exc}]"
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        last_exc = None
+        for attempt in range(4):
+            try:
+                response = await self.client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"].strip()
+            except _RETRYABLE as exc:
+                last_exc = exc
+                if attempt < 3:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+            except Exception as exc:
+                return f"[DeepSeek error: {type(exc).__name__}: {exc}]"
+        return f"[DeepSeek error: {type(last_exc).__name__}: {last_exc}]"
 
     async def generate_article(self, topic: str) -> str:
         system = "Ты — SEO-копирайтер для строительного магазина в Москве. Пиши на русском языке."
