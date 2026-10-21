@@ -2,13 +2,14 @@ import asyncio
 import sys
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api.routes import (
     ai_deepseek, ai_seo, auth, autosmeta, budget_roi, cache_warmer, clients_objects, competitors, competitors_bids,
     content_factory, dashboard, geo, import_products, lead, logistics, opencart, product, promotions, reviews,
-    semantic, seo, site, site_builder, speculation, storefront, sync, telegram, tenders, ui_builder, yandex_metrika, yandex_webmaster,
+    semantic, seo, site, site_builder, sites, speculation, storefront, sync, telegram, tenders, theme_settings, ui_builder, yandex_metrika, yandex_webmaster,
 )
 from app.core.config import settings
 
@@ -19,8 +20,11 @@ app = FastAPI(title=settings.app_name)
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     public = (
-        path.startswith(f"{settings.api_prefix}/auth/")
+        path == f"{settings.api_prefix}/health"
+        or path.startswith(f"{settings.api_prefix}/auth/")
         or path.startswith(f"{settings.api_prefix}/storefront/")
+        or path.startswith(f"{settings.api_prefix}/v1/parser/")
+        or path.startswith(f"{settings.api_prefix}/site-builder/public/")
     )
     if path.startswith(f"{settings.api_prefix}/") and not public:
         token = request.headers.get("x-auth-token", "")
@@ -35,6 +39,24 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Единый error contract для всех 422-валидаций: {status, code, detail, fields[]}.
+@app.exception_handler(RequestValidationError)
+async def _validation_error_handler(request: Request, exc: RequestValidationError):
+    fields = [
+        {"field": ".".join(str(x) for x in (e.get("loc") or ())), "message": e.get("msg", "")}
+        for e in exc.errors()
+    ]
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": "error",
+            "code": "validation",
+            "detail": "Ошибка валидации параметров запроса",
+            "fields": fields,
+        },
+    )
 
 app.include_router(auth.router, prefix=settings.api_prefix)
 app.include_router(ai_deepseek.router, prefix=settings.api_prefix)
@@ -66,7 +88,11 @@ app.include_router(logistics.router, prefix=settings.api_prefix)
 app.include_router(import_products.router, prefix=settings.api_prefix)
 app.include_router(yandex_webmaster.router, prefix=settings.api_prefix)
 app.include_router(yandex_metrika.router, prefix=settings.api_prefix)
+app.include_router(storefront.v1_router, prefix=settings.api_prefix + "/v1")
 app.include_router(storefront.router, prefix=settings.api_prefix)
+app.include_router(sites.router, prefix=settings.api_prefix)
+app.include_router(theme_settings.admin_router, prefix=settings.api_prefix)
+app.include_router(theme_settings.public_router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")
@@ -92,6 +118,13 @@ async def start_background_tasks():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# Публичный health-check: nginx проксирует бэкенд только по /api/*,
+# голый /health уходит на фронт — для мониторинга нужен /api/health.
+@app.get(f"{settings.api_prefix}/health")
+def api_health():
+    return {"status": "ok", "app": settings.app_name}
 
 
 @app.get(f"{settings.api_prefix}/geo/auto-status")

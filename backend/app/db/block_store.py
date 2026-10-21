@@ -42,13 +42,19 @@ def init_blocks() -> None:
         connection.commit()
 
 
-def list_blocks(page: str = "home") -> list[dict]:
+def list_blocks(page: str = "home", include_inactive: bool = False) -> list[dict]:
     init_blocks()
     with _db() as connection:
-        rows = connection.execute(
-            "SELECT * FROM page_blocks WHERE page = ? AND is_active = 1 ORDER BY sort_order ASC",
-            (page,),
-        ).fetchall()
+        if include_inactive:
+            rows = connection.execute(
+                "SELECT * FROM page_blocks WHERE page = ? ORDER BY sort_order ASC",
+                (page,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT * FROM page_blocks WHERE page = ? AND is_active = 1 ORDER BY sort_order ASC",
+                (page,),
+            ).fetchall()
         return [
             {
                 "id": r["id"],

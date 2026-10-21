@@ -24,6 +24,8 @@ class Product(BaseModel):
     meta_description: str = ""
     meta_keyword: str = ""
     category_id: int = 0
+    category_ids: list[int] = []  # все прямые привязки (включая подкатегории)
+    attributes: list[dict] = []  # [{name, text}] — характеристики из OpenCart
 
 
 class ProductCreate(BaseModel):

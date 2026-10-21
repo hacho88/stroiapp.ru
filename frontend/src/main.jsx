@@ -2,16 +2,19 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
-  AlertCircle, Award, BarChart3, Blocks, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
+  AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
   FileText, Folder, Image, MapPin, MessageSquare, MonitorCheck, Package, PenTool, Plus, Rocket, Save, Search, Send, Settings, ShieldCheck, ShoppingCart, Sparkles, Star, Tag, Users,
-  RefreshCw, Target, TrendingUp, Upload, Wand2, X, Zap, Menu, LogOut
+  RefreshCw, ShoppingBag, Target, TrendingUp, Truck, Upload, Wand2, X, Zap, Menu, LogOut
 } from "lucide-react";
 import "./index.css";
-import { apiGet, apiPost, apiUpload, apiUrl, apiLogin, getToken, clearToken } from "./lib/api";
-import SiteBuilder from "./components/SiteBuilder";
+import { apiGet, apiPost, apiPut, apiDelete, apiUpload, apiUrl, apiLogin, getToken, clearToken } from "./lib/api";
 import YandexWebmaster from "./components/YandexWebmaster";
-import InterfaceBuilder from "./components/InterfaceBuilder";
-import { LayoutTemplate } from "lucide-react";
+import ThemeManager from "./components/ThemeManager";
+import MediaPanel from "./components/MediaPanel";
+import SitesPanel from "./components/SitesPanel";
+import OrdersManagement from "./components/OrdersManagement";
+import PromotionsManagement from "./components/PromotionsManagement";
+import FleetPanel from "./components/FleetPanel";
 
 const budgets = [5000, 10000, 20000, 50000, 100000];
 const TABS = [
@@ -21,10 +24,10 @@ const TABS = [
   { id: "seo", label: "SEO", icon: Sparkles },
   { id: "competitors", label: "Конкуренты", icon: Eye },
   { id: "opencart", label: "OpenCart", icon: ShoppingCart },
-  { id: "site", label: "Сайт", icon: MonitorCheck },
-  { id: "site-builder", label: "Конструктор", icon: LayoutTemplate },
-  { id: "interfaces", label: "Интерфейс", icon: Blocks },
-  { id: "files", label: "Файлы сайта", icon: Folder },
+  { id: "orders", label: "Заказы", icon: ShoppingBag },
+  { id: "fleet", label: "Автопарк", icon: Truck },
+  { id: "media", label: "Медиа", icon: Image },
+  { id: "sites", label: "Сайты", icon: Globe },
   { id: "ai-seo", label: "AI SEO", icon: Wand2 },
   { id: "competitors-bids", label: "Ставки", icon: Award },
   { id: "budget-roi", label: "Бюджет", icon: BarChart3 },
@@ -117,6 +120,7 @@ function App() {
   const [allProductsPage, setAllProductsPage] = React.useState(1);
   const [allProductsTotal, setAllProductsTotal] = React.useState(0);
   const [allProductsCat, setAllProductsCat] = React.useState({ cat0: "", cat1: "", cat2: "" });
+  const [allProductsSource, setAllProductsSource] = React.useState("");
   const [importCatTree, setImportCatTree] = React.useState([]);
   const [importCatOpen, setImportCatOpen] = React.useState({});
   const [pushingId, setPushingId] = React.useState(null);
@@ -196,10 +200,12 @@ function App() {
   const [smetaPaymentType, setSmetaPaymentType] = React.useState("nal");
   const [smetaLoading, setSmetaLoading] = React.useState(false);
   const [smetaInvoice, setSmetaInvoice] = React.useState(null);
-  const [contentArticles, setContentArticles] = React.useState([]);
   const [contentQueue, setContentQueue] = React.useState([]);
-  const [contentLoading, setContentLoading] = React.useState(false);
-  const [contentCount, setContentCount] = React.useState(5);
+  const [publishedArticles, setPublishedArticles] = React.useState([]);
+  const [editArticle, setEditArticle] = React.useState(null);
+  const [savingArticle, setSavingArticle] = React.useState(false);
+  const [statsFor, setStatsFor] = React.useState(null);
+  const [articleStats, setArticleStats] = React.useState(null);
   const [clientsList, setClientsList] = React.useState([]);
   const [objectsList, setObjectsList] = React.useState([]);
   const [objLoading, setObjLoading] = React.useState(false);
@@ -282,14 +288,21 @@ function App() {
 
   React.useEffect(() => {
     if (tab !== 'all-products') return;
-    if (!importCatTree.length) loadImportCatTree();
+    loadImportCatTree();
     const t = setTimeout(() => { loadAllProducts(allProductsPage, allProductsQuery); }, 300);
     return () => clearTimeout(t);
-  }, [tab, allProductsPage, allProductsQuery]);
+  }, [tab, allProductsPage, allProductsQuery, allProductsSource]);
 
   React.useEffect(() => {
     if (tab === 'sync') {
       checkSyncStatus();
+    }
+  }, [tab]);
+
+  React.useEffect(() => {
+    if (tab === 'content-factory') {
+      loadContentQueue();
+      loadPublishedArticles();
     }
   }, [tab]);
 
@@ -706,6 +719,7 @@ function App() {
       if (cat.cat0) params.set("cat0", cat.cat0);
       if (cat.cat1) params.set("cat1", cat.cat1);
       if (cat.cat2) params.set("cat2", cat.cat2);
+      if (allProductsSource) params.set("source", allProductsSource);
       const data = await apiGet(`/import/products?${params.toString()}`);
       setAllProducts(data.products || []);
       setAllProductsTotal(data.total || 0);
@@ -719,7 +733,8 @@ function App() {
 
   async function loadImportCatTree() {
     try {
-      const data = await apiGet("/import/products/categories");
+      const params = allProductsSource ? `?source=${encodeURIComponent(allProductsSource)}` : "";
+      const data = await apiGet(`/import/products/categories${params}`);
       setImportCatTree(data.tree || []);
     } catch (e) { /* ignore */ }
   }
@@ -1303,26 +1318,12 @@ function App() {
     }
   }
 
-  async function generateContent() {
-    const count = Math.min(Number(contentCount), 20);
-    setContentLoading(true);
-    try {
-      const data = await apiPost("/content-factory/generate-articles", { count });
-      setContentArticles(data.generated || []);
-      addToast("Сгенерировано статей: " + (data.count || 0), "success");
-      loadContentQueue();
-    } catch (err) {
-      addToast("Ошибка генерации: " + err.message, "error");
-    } finally {
-      setContentLoading(false);
-    }
-  }
-
   async function publishArticle(articleId) {
     try {
       const data = await apiPost("/content-factory/publish", { article_id: articleId });
       addToast("Статья опубликована: " + data.url, "success");
       loadContentQueue();
+      loadPublishedArticles();
     } catch (err) {
       addToast("Ошибка публикации: " + err.message, "error");
     }
@@ -1334,6 +1335,74 @@ function App() {
       setContentQueue(data.queue || []);
     } catch (err) {
       console.error("loadContentQueue", err);
+    }
+  }
+
+  async function loadPublishedArticles() {
+    try {
+      const data = await apiGet("/content-factory/articles?status=published");
+      setPublishedArticles(data.articles || []);
+    } catch (err) {
+      console.error("loadPublishedArticles", err);
+    }
+  }
+
+  async function openArticleEditor(articleId) {
+    try {
+      const data = await apiGet(`/content-factory/articles/${articleId}`);
+      setEditArticle(data.article);
+    } catch (err) {
+      addToast("Ошибка загрузки статьи: " + err.message, "error");
+    }
+  }
+
+  async function saveArticle() {
+    if (!editArticle) return;
+    setSavingArticle(true);
+    try {
+      await apiPut(`/content-factory/articles/${editArticle.id}`, {
+        title: editArticle.title,
+        intro: editArticle.intro,
+        content: editArticle.content,
+        category: editArticle.category,
+        slug: editArticle.slug,
+      });
+      addToast("Статья сохранена", "success");
+      setEditArticle(null);
+      loadPublishedArticles();
+      loadContentQueue();
+    } catch (err) {
+      addToast("Ошибка сохранения: " + err.message, "error");
+    } finally {
+      setSavingArticle(false);
+    }
+  }
+
+  async function toggleArticleStats(articleId) {
+    if (statsFor === articleId) {
+      setStatsFor(null);
+      setArticleStats(null);
+      return;
+    }
+    setStatsFor(articleId);
+    setArticleStats(null);
+    try {
+      const data = await apiGet(`/content-factory/articles/${articleId}/stats`);
+      setArticleStats(data);
+    } catch (err) {
+      addToast("Ошибка статистики: " + err.message, "error");
+    }
+  }
+
+  async function deleteJournalArticle(articleId, title) {
+    if (!window.confirm(`Удалить статью «${title}»? Просмотры тоже будут удалены.`)) return;
+    try {
+      await apiDelete(`/content-factory/articles/${articleId}`);
+      addToast("Статья удалена", "success");
+      loadPublishedArticles();
+      loadContentQueue();
+    } catch (err) {
+      addToast("Ошибка удаления: " + err.message, "error");
     }
   }
 
@@ -1693,11 +1762,25 @@ function App() {
                 <div className="flex-1 rounded-2xl border border-slate-700/30 glass glass-hover p-6">
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-lg font-bold">Все товары</h2>
+                      <h2 className="text-lg font-bold">{allProductsSource === "fm" ? "Товары от ФМ" : "Все товары"}</h2>
                       <p className="text-sm text-slate-400">База импортированных товаров — {allProductsLoaded ? `${allProductsTotal} шт.` : "не загружено"}{allProductsCat.cat0 ? ` · ${[allProductsCat.cat0, allProductsCat.cat1, allProductsCat.cat2].filter(Boolean).join(" › ")}` : ""}. Нажми «+», чтобы добавить товар на сайт.</p>
                     </div>
                     <button onClick={() => loadAllProducts(page, allProductsQuery)} disabled={allProductsLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
                       {allProductsLoading ? "Загрузка..." : "Обновить"}
+                    </button>
+                  </div>
+                  <div className="mb-4 inline-flex rounded-lg border border-slate-700 bg-slate-950 p-1">
+                    <button
+                      onClick={() => { setAllProductsSource(""); setAllProductsCat({ cat0: "", cat1: "", cat2: "" }); setAllProductsPage(1); }}
+                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${allProductsSource !== "fm" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-slate-200"}`}
+                    >
+                      Все товары
+                    </button>
+                    <button
+                      onClick={() => { setAllProductsSource("fm"); setAllProductsCat({ cat0: "", cat1: "", cat2: "" }); setAllProductsPage(1); }}
+                      className={`rounded-md px-4 py-1.5 text-sm font-medium transition ${allProductsSource === "fm" ? "bg-emerald-500 text-slate-950" : "text-slate-400 hover:text-slate-200"}`}
+                    >
+                      Товары от ФМ
                     </button>
                   </div>
                   <input value={allProductsQuery} onChange={(e) => { setAllProductsQuery(e.target.value); setAllProductsPage(1); }} placeholder="Поиск по названию, SKU, xml_id..." className="mb-4 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
@@ -2277,179 +2360,6 @@ function App() {
             </div>
           )}
 
-          {/* FILES */}
-          {tab === "files" && (
-            <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
-                  <h2 className="mb-2 font-bold">Файлы OpenCart</h2>
-                  <p className="mb-3 text-sm text-slate-400">Редактирование файлов сайта через единый API. Перед сохранением создаётся backup.</p>
-                  <div className="flex gap-2">
-                    <input value={fileListPath} onChange={(e) => setFileListPath(e.target.value)} className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                    <button onClick={() => listOpenCartFiles()} disabled={fileLoading} className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-50">Открыть</button>
-                  </div>
-                </div>
-                <div className="max-h-[calc(100dvh-280px)] overflow-auto rounded-2xl border border-slate-700/30 glass glass-hover p-2 pb-20 md:pb-2">
-                  {fileItems.map((item) => {
-                    const next = `${fileListPath.replace(/\/?$/, "/")}${item.name}`;
-                    return (
-                      <button key={item.name} onClick={() => item.type === "directory" ? listOpenCartFiles(`${next}/`) : readOpenCartFile(next)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-800">
-                        {item.type === "directory" ? <Folder size={16} className="text-amber-400" /> : <FileText size={16} className="text-sky-400" />}
-                        <span className="truncate">{item.name}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
-                  <div className="mb-3 flex flex-wrap items-center gap-2">
-                    <input value={filePath} onChange={(e) => setFilePath(e.target.value)} className="min-w-[260px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                    <button onClick={() => readOpenCartFile()} disabled={fileLoading} className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-50">Читать</button>
-                    <button onClick={backupOpenCartFile} disabled={fileLoading} className="rounded bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700 disabled:opacity-50">Backup</button>
-                    <button onClick={writeOpenCartFile} disabled={fileLoading} className="inline-flex items-center gap-2 rounded bg-emerald-500 px-3 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"><Save size={16} /> Сохранить</button>
-                    <button onClick={clearOpenCartCache} disabled={fileLoading} className="rounded bg-amber-500 px-3 py-2 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50">Кэш</button>
-                  </div>
-                  {fileStatus && <div className="text-sm text-emerald-400">{fileStatus}</div>}
-                </div>
-                <textarea value={fileContent} onChange={(e) => setFileContent(e.target.value)} spellCheck={false} className="h-[calc(100vh-250px)] w-full rounded-2xl border border-slate-800 bg-slate-950 p-4 font-mono text-xs text-slate-100 outline-none focus:border-emerald-500" />
-              </div>
-            </div>
-          )}
-
-          {/* SITE */}
-          {tab === "site" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-bold">Безопасное управление stroiapp.ru</h2>
-                    <p className="text-sm text-slate-400">Health, ошибки PHP/OpenCart, кэш, backups и быстрый переход к редактированию файлов.</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button onClick={loadSiteStatus} disabled={siteLoading} className="btn-shine rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50 glow-emerald">
-                      {siteLoading ? "Проверка..." : "Проверить сайт"}
-                    </button>
-                    <button onClick={clearOpenCartCache} disabled={fileLoading} className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50">
-                      Очистить кэш
-                    </button>
-                    <button onClick={generateSitemap} disabled={siteLoading} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-sky-400 disabled:opacity-50">
-                      Sitemap
-                    </button>
-                    <button onClick={generateRobots} disabled={siteLoading} className="rounded-lg bg-indigo-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-indigo-400 disabled:opacity-50">
-                      Robots
-                    </button>
-                    <button onClick={findBrokenImages} disabled={siteLoading} className="rounded-lg bg-rose-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-rose-400 disabled:opacity-50">
-                      Изображения
-                    </button>
-                    <button onClick={cleanUnusedImages} disabled={siteLoading} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-500 disabled:opacity-50">
-                      Очистить лишнее
-                    </button>
-                    <button onClick={restoreBackup} disabled={siteLoading} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-bold text-white hover:bg-purple-500 disabled:opacity-50">
-                      Восстановить
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-5">
-                  <h3 className="mb-4 flex items-center gap-2 font-bold"><MonitorCheck size={18} className="text-emerald-400" /> Health</h3>
-                  {siteHealth ? (
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between"><span className="text-slate-500">Статус</span><span className="badge badge-active"><span className="badge-dot"></span>{siteHealth.status}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">PHP</span><span>{siteHealth.php}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">OpenCart</span><span>{siteHealth.opencart}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">Время</span><span>{siteHealth.time}</span></div>
-                    </div>
-                  ) : (
-                    <div className="text-sm text-slate-500">Нажми «Проверить сайт»</div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-5 lg:col-span-2">
-                  <h3 className="mb-4 flex items-center gap-2 font-bold"><AlertCircle size={18} className="text-red-400" /> Последние ошибки</h3>
-                  <pre className="max-h-64 overflow-auto rounded-xl bg-slate-950 p-4 text-xs text-slate-300">
-                    {siteErrorLog || "Ошибок не найдено или лог пока не загружен."}
-                  </pre>
-                </div>
-              </div>
-
-              <div className="grid gap-6 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-5">
-                  <h3 className="mb-4 flex items-center gap-2 font-bold"><ShieldCheck size={18} className="text-sky-400" /> Безопасные действия</h3>
-                  <div className="space-y-2 text-sm">
-                    <button onClick={() => { setTab("files"); setFileListPath("catalog/view/theme/"); listOpenCartFiles("catalog/view/theme/"); }} className="w-full rounded-lg bg-slate-800 px-3 py-2 text-left hover:bg-slate-700">
-                      Открыть шаблоны темы
-                    </button>
-                    <button onClick={() => { setTab("files"); setFileListPath("catalog/view/javascript/"); listOpenCartFiles("catalog/view/javascript/"); }} className="w-full rounded-lg bg-slate-800 px-3 py-2 text-left hover:bg-slate-700">
-                      Открыть JS сайта
-                    </button>
-                    <button onClick={() => { setTab("files"); setFilePath("catalog/controller/common/header.php"); readOpenCartFile("catalog/controller/common/header.php"); }} className="w-full rounded-lg bg-slate-800 px-3 py-2 text-left hover:bg-slate-700">
-                      Header controller
-                    </button>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-5 lg:col-span-2">
-                  <h3 className="mb-4 flex items-center gap-2 font-bold"><FileCheck size={18} className="text-emerald-400" /> Последние backup</h3>
-                  <div className="max-h-72 overflow-auto space-y-2 text-sm">
-                    {siteBackups.map((backup) => (
-                      <div key={backup.path} className="rounded-xl bg-slate-950 p-3">
-                        <div className="truncate font-mono text-xs text-emerald-400">{backup.path}</div>
-                        <div className="mt-1 flex justify-between text-xs text-slate-500">
-                          <span>{backup.modified}</span>
-                          <span>{backup.size} bytes</span>
-                        </div>
-                      </div>
-                    ))}
-                    {!siteBackups.length && <div className="text-slate-500">Backup не загружены. Нажми «Проверить сайт».</div>}
-                  </div>
-                </div>
-              </div>
-
-              {siteImages && (
-                <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-5 lg:col-span-3">
-                  <h3 className="mb-4 flex items-center gap-2 font-bold"><Image size={18} className="text-rose-400" /> Изображения</h3>
-                  <div className="grid grid-cols-2 gap-4 text-sm mb-4">
-                    <div className="rounded-xl bg-slate-950 p-3 text-center">
-                      <div className="text-2xl font-bold text-emerald-400">{siteImages.total_files}</div>
-                      <div className="text-slate-500">Всего файлов</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-950 p-3 text-center">
-                      <div className="text-2xl font-bold text-emerald-400">{siteImages.total_db_images}</div>
-                      <div className="text-slate-500">В БД</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-950 p-3 text-center">
-                      <div className="text-2xl font-bold text-amber-400">{siteImages.unused_count}</div>
-                      <div className="text-slate-500">Неиспользуемых</div>
-                    </div>
-                    <div className="rounded-xl bg-slate-950 p-3 text-center">
-                      <div className="text-2xl font-bold text-rose-400">{siteImages.broken_count}</div>
-                      <div className="text-slate-500">Битых</div>
-                    </div>
-                  </div>
-                  {siteImages.broken.length > 0 && (
-                    <div className="mb-3">
-                      <div className="mb-1 text-sm font-bold text-rose-400">Битые ссылки (первые 50):</div>
-                      <div className="max-h-40 overflow-auto rounded-xl bg-slate-950 p-3 text-xs font-mono text-slate-300">
-                        {siteImages.broken.map((img, i) => <div key={i} className="truncate">{img}</div>)}
-                      </div>
-                    </div>
-                  )}
-                  {siteImages.unused.length > 0 && (
-                    <div>
-                      <div className="mb-1 text-sm font-bold text-amber-400">Неиспользуемые файлы (первые 50):</div>
-                      <div className="max-h-40 overflow-auto rounded-xl bg-slate-950 p-3 text-xs font-mono text-slate-300">
-                        {siteImages.unused.map((img, i) => <div key={i} className="truncate">{img}</div>)}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* AI SEO */}
           {tab === "ai-seo" && (
             <AiSeoPanel
@@ -2987,169 +2897,14 @@ function App() {
             </div>
           )}
 
+          {/* ORDERS */}
+          {tab === "orders" && <OrdersManagement />}
+
+          {/* FLEET */}
+          {tab === "fleet" && <FleetPanel />}
+
           {/* PROMOTIONS */}
-          {tab === "promotions" && (
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-6">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-                  <div>
-                    <h2 className="text-lg font-bold">Акции и локомотивы</h2>
-                    <p className="text-sm text-slate-400">Поиск товаров-связок (локомотив + вагон), создание динамических акций.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button onClick={findBundles} disabled={promoLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">{promoLoading ? "Поиск..." : "Найти связки"}</button>
-                    <button onClick={loadPromotions} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">Список акций</button>
-                  </div>
-                </div>
-
-                <div className="mb-4 rounded-lg bg-sky-500/10 border border-sky-500/20 p-4 text-sm text-slate-300">
-                  <div className="font-bold text-sky-400 mb-1">Как работать с разделом</div>
-                  <div className="text-xs space-y-1">
-                    <p><b>1. Найдите связки:</b> нажмите «Найти связки» — система подберёт товары, которые часто покупают вместе.</p>
-                    <p><b>2. Создайте акцию:</b> введите название, выберите связку и скидку (%) → нажмите «Создать акцию».</p>
-                    <p><b>3. Список акций:</b> нажмите «Список акций» чтобы увидеть все активные акции и их эффективность.</p>
-                    <p><b>4. Локомотив + вагон:</b> первый товар — основной, второй — дополнительный с повышенной маржой.</p>
-                  </div>
-                </div>
-
-                {/* Создание акции */}
-                <div className="mb-6 rounded-xl bg-slate-800/50 p-4 border border-slate-700/30">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Создать акцию</div>
-                  <div className="flex flex-wrap gap-2">
-                    <input value={promoName} onChange={(e) => setPromoName(e.target.value)} placeholder="Название акции" className="min-w-[200px] flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                    <input type="number" value={promoDiscount} onChange={(e) => setPromoDiscount(e.target.value)} placeholder="Скидка %" className="w-24 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                    <button onClick={createPromotion} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400">Создать</button>
-                  </div>
-                </div>
-
-                {/* Найденные связки */}
-                {promoBundles.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Найденные связки</h3>
-                    <div className="overflow-auto rounded-xl border border-slate-700/30">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-slate-800/50 text-left text-xs uppercase tracking-wider text-slate-400">
-                            <th className="px-4 py-3">Локомотив</th>
-                            <th className="px-4 py-3 text-right">Цена</th>
-                            <th className="px-4 py-3">Вагон</th>
-                            <th className="px-4 py-3 text-right">Цена</th>
-                            <th className="px-4 py-3 text-right">Скидка</th>
-                            <th className="px-4 py-3 text-right">Итого</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {promoBundles.map((b, i) => (
-                            <tr key={i} className="border-t border-slate-800/50 hover:bg-slate-800/30">
-                              <td className="px-4 py-3 font-medium">{b.locomotive?.name}</td>
-                              <td className="px-4 py-3 text-right">{money(b.locomotive?.price)}</td>
-                              <td className="px-4 py-3">{b.wagon?.name}</td>
-                              <td className="px-4 py-3 text-right text-slate-400">{money(b.wagon?.price)}</td>
-                              <td className="px-4 py-3 text-right text-emerald-400">{money(b.discount)}</td>
-                              <td className="px-4 py-3 text-right font-bold">{money(b.bundle_price)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-                {/* Список акций */}
-                {promoList.length > 0 && (
-                  <div>
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Активные акции</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {promoList.map((p) => (
-                        <div key={p.promotion_id} className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/30">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-bold">{p.name}</span>
-                            <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-xs text-emerald-400">{p.status}</span>
-                          </div>
-                          <div className="text-xs text-slate-400">Скидка: {p.discount_pct}%</div>
-                          <div className="text-xs text-slate-500">Товаров: {p.products?.length || 0}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Special Prices Manager */}
-                <div className="mt-8 rounded-xl border border-slate-700/30 bg-slate-800/30 p-6">
-                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="text-base font-bold">Акционные цены на товары</h3>
-                      <p className="text-xs text-slate-400">Установите скидочную цену — товар появится в блоке «Акции» на сайте.</p>
-                    </div>
-                    <button onClick={loadSpecialProducts} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">Обновить список</button>
-                  </div>
-
-                  {/* Add special price */}
-                  <div className="mb-4 rounded-lg bg-slate-800/50 p-4 border border-slate-700/30">
-                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Назначить акцию</div>
-                    <div className="flex flex-wrap gap-2 items-end">
-                      <div className="min-w-[280px] flex-1">
-                        <input
-                          value={specialSearch}
-                          onChange={(e) => setSpecialSearch(e.target.value)}
-                          placeholder="Поиск по названию или артикулу..."
-                          className="w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-                        />
-                        {specialSearch.trim() && !specialSelected && (
-                          <div className="mt-1 max-h-40 overflow-auto rounded border border-slate-700 bg-slate-950">
-                            {products.filter(p => (p.name?.toLowerCase().includes(specialSearch.toLowerCase()) || p.sku?.toLowerCase().includes(specialSearch.toLowerCase()))).slice(0, 5).map(p => (
-                              <button key={p.product_id} onClick={() => { setSpecialSelected(p); setSpecialSearch(p.name + " (" + p.sku + ")"); }} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-slate-800">
-                                <span className="truncate">{p.name}</span>
-                                <span className="text-xs text-slate-500 ml-2 shrink-0">{money(p.price)}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <input type="number" value={specialPriceInput} onChange={(e) => setSpecialPriceInput(e.target.value)} placeholder="Акц. цена" className="w-32 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                      <button onClick={setProductSpecialPrice} disabled={specialLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">{specialLoading ? "..." : "Установить"}</button>
-                    </div>
-                    {specialSelected && (
-                      <div className="mt-2 text-xs text-slate-400">Базовая цена: {money(specialSelected.price)} | SKU: {specialSelected.sku}</div>
-                    )}
-                  </div>
-
-                  {/* Current special products */}
-                  {specialProducts.length > 0 && (
-                    <div>
-                      <h4 className="mb-3 text-xs font-bold uppercase tracking-wider text-slate-500">Текущие акции на сайте ({specialProducts.length})</h4>
-                      <div className="overflow-auto rounded-xl border border-slate-700/30">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="bg-slate-800/50 text-left text-xs uppercase tracking-wider text-slate-400">
-                              <th className="px-4 py-3">Товар</th>
-                              <th className="px-4 py-3 text-right">Базовая</th>
-                              <th className="px-4 py-3 text-right">Акция</th>
-                              <th className="px-4 py-3 text-right">Скидка</th>
-                              <th className="px-4 py-3 text-center">Действие</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {specialProducts.map((p) => (
-                              <tr key={p.product_id} className="border-t border-slate-800/50 hover:bg-slate-800/30">
-                                <td className="px-4 py-3 font-medium">{p.name}</td>
-                                <td className="px-4 py-3 text-right text-slate-400">{money(p.price)}</td>
-                                <td className="px-4 py-3 text-right font-bold text-emerald-400">{money(p.special_price)}</td>
-                                <td className="px-4 py-3 text-right text-amber-400">{p.discount}%</td>
-                                <td className="px-4 py-3 text-center">
-                                  <button onClick={() => removeSpecialPrice(p.product_id)} className="rounded bg-red-500/20 px-2 py-1 text-xs text-red-400 hover:bg-red-500/30">Убрать</button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          {tab === "promotions" && <PromotionsManagement />}
 
           {/* TENDERS */}
           {tab === "tenders" && (
@@ -3382,7 +3137,7 @@ function App() {
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
                   <div>
                     <h2 className="text-lg font-bold">Контент-фабрика</h2>
-                    <p className="text-sm text-slate-400">Генерация SEO-статей для блога, массовая публикация в OpenCart.</p>
+                    <p className="text-sm text-slate-400">Генерация экспертных статей для Журнала moscow.stroiapp.ru — строго по товарам раздела «Товары на сайте».</p>
                   </div>
                   <div className="flex gap-2">
                     <button onClick={loadContentQueue} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400">Очередь ({contentQueue.length})</button>
@@ -3392,36 +3147,17 @@ function App() {
                 <div className="mb-4 rounded-lg bg-sky-500/10 border border-sky-500/20 p-4 text-sm text-slate-300">
                   <div className="font-bold text-sky-400 mb-1">Как работать с разделом</div>
                   <div className="text-xs space-y-1">
-                    <p><b>1. Задайте количество:</b> укажите, сколько SEO-статей нужно сгенерировать (от 1 до 20 за раз).</p>
-                    <p><b>2. Сгенерируйте:</b> нажмите «Сгенерировать» — ИИ создаст уникальные статьи на строительную тематику.</p>
-                    <p><b>3. Просмотрите:</b> каждая статья отображается карточкой с заголовком и текстом. Проверьте качество.</p>
-                    <p><b>4. Публикуйте:</b> нажмите «Опубликовать» — статья отправится в блог OpenCart. Очередь показывает неопубликованные статьи.</p>
+                    <p><b>Режим — полностью автоматический.</b> Система сама каждый день выбирает товары из раздела «Товары на сайте», пишет статьи от 10 000 знаков и публикует их в Журнале moscow.stroiapp.ru.</p>
+                    <p><b>1. Темп:</b> 1–2 статьи в день (автопаблишер) — безопасный темп для индексации Яндексом.</p>
+                    <p><b>2. Темы:</b> только товары с сайта, без повторов — каждый товар получает одну статью.</p>
+                    <p><b>3. Очередь:</b> здесь видны черновики — при необходимости можно досрочно нажать «Опубликовать» или «Удалить».</p>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-end gap-3 mb-6">
-                  <div>
-                    <div className="mb-1 text-xs text-slate-500">Количество статей</div>
-                    <input type="number" value={contentCount} onChange={(e) => setContentCount(e.target.value)} min={1} max={20} className="w-24 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
-                  </div>
-                  <button onClick={generateContent} disabled={contentLoading} className="rounded-lg bg-emerald-500 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">{contentLoading ? "Генерация..." : "Сгенерировать"}</button>
+                <div className="mb-6 flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400"></span>
+                  Автопубликация включена — 1–2 статьи в день по товарам с сайта. Вмешательство не требуется.
                 </div>
-
-                {/* Сгенерированные статьи */}
-                {contentArticles.length > 0 && (
-                  <div className="mb-6">
-                    <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Сгенерированные статьи</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {contentArticles.map((a) => (
-                        <div key={a.id} className="rounded-xl bg-slate-800/50 p-4 border border-slate-700/30">
-                          <div className="font-bold mb-2">{a.title}</div>
-                          <div className="text-xs text-slate-400 line-clamp-4">{a.text}</div>
-                          <button onClick={() => publishArticle(a.id)} className="mt-3 rounded bg-emerald-500/20 px-3 py-1 text-xs text-emerald-400 hover:bg-emerald-500/30">Опубликовать</button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
 
                 {/* Очередь */}
                 {contentQueue.length > 0 && (
@@ -3429,19 +3165,93 @@ function App() {
                     <h3 className="mb-3 text-sm font-bold uppercase tracking-wider text-slate-500">Очередь на публикацию ({contentQueue.length})</h3>
                     <div className="space-y-2">
                       {contentQueue.map((a) => (
-                        <div key={a.id} className="flex items-center justify-between rounded-xl bg-slate-800/50 p-3 border border-slate-700/30">
-                          <span className="text-sm">{a.title}</span>
-                          <button onClick={() => publishArticle(a.id)} className="rounded bg-sky-500/20 px-2 py-1 text-xs text-sky-400 hover:bg-sky-500/30">Опубликовать</button>
+                        <div key={a.id} className="flex items-center justify-between gap-2 rounded-xl bg-slate-800/50 p-3 border border-slate-700/30">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm">{a.title}</div>
+                            <div className="text-[11px] text-slate-500">черновик{a.chars ? ` · ${a.chars.toLocaleString("ru-RU")} знаков` : ""}</div>
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <button onClick={() => openArticleEditor(a.id)} className="rounded bg-slate-700/50 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">Править</button>
+                            <button onClick={() => publishArticle(a.id)} className="rounded bg-sky-500/20 px-2 py-1 text-xs text-sky-400 hover:bg-sky-500/30">Опубликовать</button>
+                            <button onClick={() => deleteJournalArticle(a.id, a.title)} className="rounded bg-rose-500/20 px-2 py-1 text-xs text-rose-400 hover:bg-rose-500/30">Удалить</button>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+                {/* Опубликованные */}
+                <div className="mt-6">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500">Опубликованные в Журнале ({publishedArticles.length})</h3>
+                    <button onClick={loadPublishedArticles} className="rounded bg-slate-700/50 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">Обновить</button>
+                  </div>
+                  {publishedArticles.length === 0 ? (
+                    <p className="text-sm text-slate-500">Пока нет опубликованных статей — автопаблишер добавит их сам.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {publishedArticles.map((a) => (
+                        <div key={a.id} className="rounded-xl border border-slate-700/30 bg-slate-800/50">
+                          <div className="flex items-center justify-between gap-2 p-3">
+                            <div className="min-w-0">
+                              <a href={a.url} target="_blank" rel="noreferrer" className="block truncate text-sm text-slate-200 hover:text-sky-400">{a.title}</a>
+                              <div className="text-[11px] text-slate-500">
+                                {a.category}{a.chars ? ` · ${a.chars.toLocaleString("ru-RU")} знаков` : ""}{a.published_at ? ` · ${new Date(a.published_at).toLocaleDateString("ru-RU")}` : ""}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <span className="flex items-center gap-1 text-xs text-emerald-400" title="Просмотры"><Eye size={13} /> {a.views || 0}</span>
+                              <button onClick={() => toggleArticleStats(a.id)} className="rounded bg-slate-700/50 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700" title="Кто читал"><BarChart3 size={13} /></button>
+                              <button onClick={() => openArticleEditor(a.id)} className="rounded bg-slate-700/50 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">Править</button>
+                              <button onClick={() => deleteJournalArticle(a.id, a.title)} className="rounded bg-rose-500/20 px-2 py-1 text-xs text-rose-400 hover:bg-rose-500/30">Удалить</button>
+                            </div>
+                          </div>
+                          {statsFor === a.id && (
+                            <div className="border-t border-slate-700/30 p-3 text-xs text-slate-400">
+                              {!articleStats ? (
+                                <div className="text-slate-500">Загружаем статистику…</div>
+                              ) : (
+                                <div className="grid gap-3 md:grid-cols-3">
+                                  <div className="rounded-lg bg-slate-900/60 p-3">
+                                    <div className="mb-1 font-bold text-slate-300">Просмотры</div>
+                                    <div>Всего: <b className="text-emerald-400">{articleStats.views || 0}</b></div>
+                                    <div>Уникальных IP: <b>{articleStats.unique_ips || 0}</b></div>
+                                  </div>
+                                  <div className="rounded-lg bg-slate-900/60 p-3">
+                                    <div className="mb-1 font-bold text-slate-300">Страны</div>
+                                    {(articleStats.countries || []).length === 0 ? <div className="text-slate-500">нет данных</div> : (
+                                      <div className="space-y-0.5">
+                                        {articleStats.countries.slice(0, 6).map((c) => (
+                                          <div key={c.country} className="flex justify-between"><span>{c.country || "?"}</span><b>{c.n}</b></div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="rounded-lg bg-slate-900/60 p-3 md:col-span-1">
+                                    <div className="mb-1 font-bold text-slate-300">Последние визиты</div>
+                                    {(articleStats.recent || []).length === 0 ? <div className="text-slate-500">нет данных</div> : (
+                                      <div className="max-h-28 space-y-0.5 overflow-y-auto">
+                                        {articleStats.recent.map((v, i) => (
+                                          <div key={i} className="truncate" title={v.user_agent || ""}>
+                                            {v.viewed_at ? new Date(v.viewed_at).toLocaleString("ru-RU") : ""} · {v.country || "?"}{v.city ? `/${v.city}` : ""} · {v.ip}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
-
-          {/* CLIENTS & OBJECTS */}
           {tab === "clients-objects" && (
             <div className="space-y-6">
               <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-6">
@@ -3562,14 +3372,14 @@ function App() {
             </div>
           )}
 
-          {/* SITE BUILDER */}
-          {tab === "site-builder" && <SiteBuilder addToast={addToast} />}
-
-          {/* INTERFACE BUILDER */}
-          {tab === "interfaces" && <InterfaceBuilder addToast={addToast} />}
-
           {/* YANDEX WEBMASTER */}
           {tab === "webmaster" && <YandexWebmaster />}
+
+          {/* MEDIA */}
+          {tab === "media" && <MediaPanel addToast={addToast} />}
+
+          {/* SITES */}
+          {tab === "sites" && <SitesPanel addToast={addToast} />}
 
           {/* SYNC */}
           {tab === "sync" && (
@@ -3691,6 +3501,7 @@ function App() {
           {/* TOOLS */}
           {tab === "tools" && (
             <div className="grid gap-6 lg:grid-cols-2">
+              <ThemeManager />
               <ToolCard icon={Send} title="Telegram" desc="Тестовое уведомление менеджеру.">
                 <button onClick={() => apiPost("/telegram/test", {}).then((r) => alert("Статус: " + r.status))} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400">Отправить</button>
               </ToolCard>
@@ -3715,7 +3526,7 @@ function App() {
 
       {/* Mobile bottom nav */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 flex items-stretch border-t border-slate-800 bg-slate-900/95 backdrop-blur md:hidden" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        {["dashboard", "products", "opencart", "ai-seo"].map((id) => {
+        {["dashboard", "products", "orders", "ai-seo"].map((id) => {
           const t = TABS.find((x) => x.id === id);
           const Icon = t.icon;
           const active = tab === id;
@@ -4070,6 +3881,52 @@ function AiSeoPanel({ products, setProducts, filter, setFilter, loading, setLoad
           Показано: {filtered.length} / {products.length}
         </div>
       </div>
+
+      {/* Article Editor Modal */}
+      {editArticle && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setEditArticle(null)}>
+          <div className="max-h-[90vh] w-[95%] max-w-4xl overflow-auto rounded-2xl border border-slate-700/50 bg-slate-900 p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-4 flex items-center justify-between border-b border-slate-700 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white">Редактировать статью</h3>
+                <p className="text-xs text-slate-500">{editArticle.status === "published" ? "Опубликована в Журнале" : "Черновик"} · просмотров: {editArticle.views || 0}</p>
+              </div>
+              <button onClick={() => setEditArticle(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"><X size={20} /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Заголовок</label>
+                <input value={editArticle.title || ""} onChange={(e) => setEditArticle({ ...editArticle, title: e.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500" />
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Slug (URL)</label>
+                  <input value={editArticle.slug || ""} onChange={(e) => setEditArticle({ ...editArticle, slug: e.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Категория</label>
+                  <select value={editArticle.category || "Продукт"} onChange={(e) => setEditArticle({ ...editArticle, category: e.target.value })} className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500">
+                    {["Продукт", "Инструкция", "Бизнес", "Сервис", "Видео"].map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Лид (intro)</label>
+                <textarea value={editArticle.intro || ""} onChange={(e) => setEditArticle({ ...editArticle, intro: e.target.value })} rows={3} className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-500" />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-slate-500">Текст статьи (HTML)</label>
+                <textarea value={editArticle.content || ""} onChange={(e) => setEditArticle({ ...editArticle, content: e.target.value })} rows={16} className="w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 font-mono text-xs text-slate-100 outline-none focus:border-sky-500" />
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-slate-700 pt-4">
+                <a href={`https://moscow.stroiapp.ru/journal/?slug=${editArticle.slug}`} target="_blank" rel="noreferrer" className="mr-auto rounded-lg bg-slate-700/50 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">Открыть на сайте</a>
+                <button onClick={() => setEditArticle(null)} className="rounded-lg bg-slate-700/50 px-4 py-2 text-sm text-slate-300 hover:bg-slate-700">Отмена</button>
+                <button onClick={saveArticle} disabled={savingArticle} className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-bold text-white hover:bg-sky-400 disabled:opacity-50">{savingArticle ? "Сохраняем…" : "Сохранить"}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Preview Modal */}
       {preview && (
@@ -4955,4 +4812,5 @@ if ("serviceWorker" in navigator) {
   });
 }
 
+createRoot(document.getElementById("root")).render(<App />);
 createRoot(document.getElementById("root")).render(<App />);

@@ -232,6 +232,33 @@ class TenderMonitor:
 
         our_products = product_db.list_products()
         matched = []
+        seen_skus: set[str] = set()
+
+        def _append(p):
+            if p.sku in seen_skus:
+                return
+            seen_skus.add(p.sku)
+            matched.append({
+                "sku": p.sku,
+                "name": p.name,
+                "retail_price": p.retail_price,
+                "wholesale_price": getattr(p, "wholesale_price", None),
+                "cost_price": p.cost_price_cash or p.cost_price_cashless,
+                "margin": p.retail_price - (p.cost_price_cash or p.cost_price_cashless or 0),
+                "url": f"https://stroiapp.ru/index.php?route=product/product&product_id={p.sku}",
+            })
+
+        # Семантический матч через обучаемое ядро: нормализация, бренд-алиасы,
+        # фасовки, выученные связи — ловит «ротбанд 30кг» даже с опечатками.
+        try:
+            from app.services.catalog_core import catalog_core
+            for line in (tender_name, items_text):
+                if line:
+                    for p in catalog_core.search(str(line), limit=15):
+                        _append(p)
+        except Exception:
+            pass  # ядро недоступно — работаем на легаси-матче
+
         for p in our_products:
             name = (p.name or "").lower()
             if not name or len(name) < 5:
@@ -241,15 +268,15 @@ class TenderMonitor:
             if len(name_words) >= 2:
                 key_phrase = " ".join(name_words[:2])
                 if key_phrase in search_text:
-                    matched.append({
-                        "sku": p.sku,
-                        "name": p.name,
-                        "retail_price": p.retail_price,
-                        "wholesale_price": getattr(p, "wholesale_price", None),
-                        "cost_price": p.cost_price_cash or p.cost_price_cashless,
-                        "margin": p.retail_price - (p.cost_price_cash or p.cost_price_cashless or 0),
-                        "url": f"https://stroiapp.ru/index.php?route=product/product&product_id={p.sku}",
-                    })
+                    _append(p)
+
+        # авто-дообучение: связываем текст тендера с найденными артикулами
+        try:
+            for m in matched[:20]:
+                catalog_core.learn_domain("tenders", search_text[:150],
+                                          m["sku"], "alias", "auto")
+        except Exception:
+            pass
 
         return {
             "matched_count": len(matched),

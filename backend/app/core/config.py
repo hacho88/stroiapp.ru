@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     dadata_token: str = ""
     telegram_bot_token: str = ""
     manager_telegram_chat_id: str = ""
+    sms_api_id: str = ""  # SMS Aero api key — без него /auth/sms-code отдаёт dev_code
     max_bot_token: str = ""
     max_chat_id: str = ""
     smtp_host: str = ""

@@ -158,7 +158,7 @@ class OpenCartAPI:
         }
         return await self.post_action("seo/updateMeta", payload)
 
-    async def upload_image(self, file_bytes: bytes, filename: str, content_type: str = "image/jpeg"):
+    async def upload_image(self, file_bytes: bytes, filename: str, content_type: str = "image/jpeg", dir: str = "", name: str = ""):
         import asyncio
         loop = asyncio.get_event_loop()
 
@@ -170,7 +170,12 @@ class OpenCartAPI:
                 f"Content-Type: {content_type}\r\n\r\n"
             ).encode() + file_bytes + f"\r\n--{boundary}--\r\n".encode()
             headers = {**self._headers(), "Content-Type": f"multipart/form-data; boundary={boundary}"}
-            req = urllib.request.Request(self._url("image/upload"), data=body, headers=headers, method="POST")
+            url = self._url("image/upload")
+            if dir:
+                url += "&dir=" + urllib.parse.quote(dir)
+            if name:
+                url += "&name=" + urllib.parse.quote(name)
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             with urllib.request.urlopen(req, timeout=60, context=self._ssl_context) as resp:
                 return _json.loads(resp.read().decode("utf-8-sig"))
 

@@ -37,7 +37,54 @@ async def sync_products_from_site() -> int:
         if len(rows) < 500 or page >= 60:  # cap ~30k товаров
             break
         page += 1
+    try:
+        await sync_product_categories()
+    except Exception:
+        pass
     return total
+
+
+async def sync_product_categories() -> int:
+    """Привязать товары к верхним категориям OpenCart (product/listByCategory по всему дереву)."""
+    data = await opencart_api.get_action("category/list")
+    cats = (data or {}).get("categories") or []
+    parent = {int(c["category_id"]): int(c.get("parent_id") or 0) for c in cats if c.get("category_id")}
+
+    def top_of(cid: int) -> int:
+        seen = set()
+        while parent.get(cid, 0) and cid not in seen:
+            seen.add(cid)
+            cid = parent[cid]
+        return cid
+
+    pid_to_cat: dict[int, int] = {}
+    pid_to_cats: dict[int, list[int]] = {}
+    for cid in parent:
+        res = await opencart_api.get_action("product/listByCategory", {"category_id": cid})
+        for row in (res or {}).get("products") or []:
+            try:
+                pid = int(row.get("product_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if not pid:
+                continue
+            pid_to_cats.setdefault(pid, [])
+            if cid not in pid_to_cats[pid]:
+                pid_to_cats[pid].append(cid)
+            # верхняя категория — от первой встреченной привязки
+            if pid not in pid_to_cat:
+                pid_to_cat[pid] = top_of(cid)
+    return product_db.assign_categories(pid_to_cat, pid_to_cats)
+
+
+@router.post("/syncCategories")
+async def sync_categories():
+    """Ручная привязка товаров «Товары на сайте» к категориям OpenCart."""
+    try:
+        n = await sync_product_categories()
+        return {"status": "ok", "assigned": n}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
 
 
 @router.post("/syncFromSite")

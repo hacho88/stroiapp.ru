@@ -47,15 +47,21 @@ def init_db() -> None:
                 prop_app TEXT DEFAULT '',
                 prop_216 TEXT DEFAULT '',
                 sku TEXT DEFAULT '',
+                source TEXT DEFAULT '',
                 pushed INTEGER NOT NULL DEFAULT 0,
                 product_id INTEGER,
                 date_added TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+        try:
+            connection.execute("ALTER TABLE imported_products ADD COLUMN source TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         connection.execute("CREATE INDEX IF NOT EXISTS idx_imported_name ON imported_products(name)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_imported_cat ON imported_products(cat0, cat1, cat2)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_imported_pushed ON imported_products(pushed)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_imported_source ON imported_products(source)")
 
 
 def bulk_insert(products: list[dict]) -> dict:
@@ -70,8 +76,8 @@ def bulk_insert(products: list[dict]) -> dict:
                     """
                     INSERT INTO imported_products
                         (xml_id, name, description, image, image_path, cat0, cat1, cat2,
-                         weight, width, height, length, price, prop_type, prop_app, prop_216, sku)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         weight, width, height, length, price, prop_type, prop_app, prop_216, sku, source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(p.get("xml_id") or ""),
@@ -91,6 +97,7 @@ def bulk_insert(products: list[dict]) -> dict:
                         p.get("prop_app") or "",
                         str(p.get("prop_216") or ""),
                         p.get("sku") or "",
+                        p.get("source") or "",
                     ),
                 )
                 inserted += 1
@@ -99,10 +106,13 @@ def bulk_insert(products: list[dict]) -> dict:
     return {"inserted": inserted, "skipped": skipped}
 
 
-def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None) -> dict:
+def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None, source: str = "") -> dict:
     init_db()
     where = []
     params: list = []
+    if source:
+        where.append("source = ?")
+        params.append(source)
     if search:
         where.append("(name LIKE ? OR sku LIKE ? OR xml_id LIKE ?)")
         like = f"%{search}%"
@@ -130,12 +140,15 @@ def list_products(limit: int = 50, page: int = 1, search: str = "", cat0: str = 
     return {"total": total, "page": page, "limit": limit, "products": [dict(r) for r in rows]}
 
 
-def category_tree() -> list[dict]:
+def category_tree(source: str = "") -> list[dict]:
     """Nested category tree cat0 -> cat1 -> cat2 with product counts."""
     init_db()
+    where_sql = " WHERE source = ?" if source else ""
+    params = [source] if source else []
     with _db() as connection:
         rows = connection.execute(
-            "SELECT cat0, cat1, cat2, COUNT(*) AS c FROM imported_products GROUP BY cat0, cat1, cat2 ORDER BY cat0, cat1, cat2"
+            "SELECT cat0, cat1, cat2, COUNT(*) AS c FROM imported_products" + where_sql + " GROUP BY cat0, cat1, cat2 ORDER BY cat0, cat1, cat2",
+            params,
         ).fetchall()
     tree: dict = {}
     order: list = []

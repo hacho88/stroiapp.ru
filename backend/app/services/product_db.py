@@ -1,10 +1,12 @@
 from app.models.product import Product
 from app.db.cost_store import get_all_costs, save_costs
+from app.db.attr_store import get_all_attributes
 from app.services.opencart_dump import load_products_from_dump
-
 
 class ProductDB:
     def __init__(self) -> None:
+        # Ревизия каталога: бампится на каждую мутацию — catalog_core следит за ней
+        self._rev = 0
         imported_products = load_products_from_dump(limit=500)
         if imported_products:
             self._products = {product.sku: product for product in imported_products}
@@ -15,6 +17,14 @@ class ProductDB:
                 "0003": Product(sku="0003", name="Арматура А500С 12 мм", cost_price_cash=52, cost_price_cashless=55, retail_price=78, wholesale_price=73, expected_orders=120, expected_profit=2160, optimal_cpc=24, optimal_position=3, traffic_share=0.72, roi=75, ad_budget=2880),
             }
         self._apply_saved_costs()
+        self._apply_saved_attributes()
+
+    def _apply_saved_attributes(self) -> None:
+        by_pid = {p.product_id: p for p in self._products.values() if p.product_id}
+        for pid, attrs in get_all_attributes().items():
+            product = by_pid.get(pid)
+            if product is not None:
+                product.attributes = attrs
 
     def _recalculate(self, product: Product) -> Product:
         cost = product.cost_price_cash or product.cost_price_cashless
@@ -130,6 +140,7 @@ class ProductDB:
         self._recalculate(product)
         save_costs(sku, cost_price_cash, cost_price_cashless, product.retail_price, product.wholesale_price)
         self._products[sku] = product
+        self._rev += 1
         return product
 
     def add_product(self, sku: str, name: str, **kwargs) -> Product:
@@ -141,6 +152,7 @@ class ProductDB:
         if product.cost_price_cash or product.cost_price_cashless:
             save_costs(sku, product.cost_price_cash, product.cost_price_cashless, product.retail_price, product.wholesale_price)
         self._products[sku] = product
+        self._rev += 1
         return product
 
     def edit_product(self, sku: str, **kwargs) -> Product | None:
@@ -154,6 +166,7 @@ class ProductDB:
         self._recalculate(product)
         if product.cost_price_cash or product.cost_price_cashless:
             save_costs(sku, product.cost_price_cash, product.cost_price_cashless, product.retail_price, product.wholesale_price)
+        self._rev += 1
         return product
 
     def delete_product(self, sku: str) -> bool:
@@ -161,6 +174,7 @@ class ProductDB:
         if sku not in self._products:
             return False
         del self._products[sku]
+        self._rev += 1
         return True
 
     def bulk_upsert_costs(self, rows: list[dict[str, str]]) -> dict[str, int]:
@@ -188,6 +202,8 @@ class ProductDB:
         if imported_products:
             self._products = {product.sku: product for product in imported_products}
             self._apply_saved_costs()
+            self._apply_saved_attributes()
+            self._rev += 1
         return len(imported_products)
 
     def calculate_prices_for_foreman(self, skus: list[str], margin_retail: float = 1.35, margin_wholesale: float = 1.25) -> list[dict]:
@@ -264,6 +280,21 @@ class ProductDB:
                 )
             count += 1
         self._apply_saved_costs()
+        self._apply_saved_attributes()
+        if count:
+            self._rev += 1
+        return count
+
+    def assign_categories(self, pid_to_cat: dict[int, int], pid_to_cats: dict[int, list[int]] | None = None) -> int:
+        """Проставить category_id (верхняя категория) и category_ids (все прямые привязки)."""
+        count = 0
+        for p in self._products.values():
+            cid = pid_to_cat.get(p.product_id or -1)
+            if cid and p.category_id != cid:
+                p.category_id = cid
+                count += 1
+            if pid_to_cats is not None:
+                p.category_ids = pid_to_cats.get(p.product_id or -1, [])
         return count
 
 

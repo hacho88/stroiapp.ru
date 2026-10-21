@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Body
 
 from app.services.opencart_api import opencart_api
 from app.services.product_db import product_db
+from app.db import import_store
 
 router = APIRouter(prefix="/opencart", tags=["opencart"])
 
@@ -275,6 +276,219 @@ async def db_execute_sql(data: dict = Body(...)):
 async def files_list(path: str = "catalog/"):
     try:
         return await opencart_api.get_action("file/listSafe", {"path": path})
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+
+
+@router.get("/media/list")
+async def media_list(path: str = "catalog/"):
+    """List files inside image/ on the OpenCart host. path is relative to image/ (e.g. 'catalog/ai_uploads')."""
+    try:
+        rel = path.strip("/")
+        if not rel.startswith("catalog"):
+            rel = "catalog/" + rel if rel else "catalog"
+        data = await opencart_api.get_action("file/listSafe", {"path": f"image/{rel}/"})
+        items = data.get("items") or []
+        for it in items:
+            ext = "." + it.get("name", "").rsplit(".", 1)[-1].lower() if "." in it.get("name", "") else ""
+            it["is_image"] = it.get("type") == "file" and ext in IMAGE_EXTS
+            it["url"] = f"https://stroiapp.ru/image/{rel}/{it['name']}" if it.get("type") == "file" else ""
+        return {"status": data.get("status", "ok"), "path": rel, "items": items}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.post("/media/upload")
+async def media_upload(file: UploadFile = File(...), dir: str = "catalog/ai_uploads", name: str = ""):
+    try:
+        contents = await file.read()
+        safe_name = _slugify_name(name) if name else ""
+        return await opencart_api.upload_image(contents, file.filename, file.content_type or "image/jpeg", dir=dir, name=safe_name)
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.post("/media/delete")
+async def media_delete(payload: dict = Body(...)):
+    try:
+        return await opencart_api.post_action("image/delete", {"path": payload.get("path", "")})
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.post("/media/mkdir")
+async def media_mkdir(payload: dict = Body(...)):
+    try:
+        return await opencart_api.post_action("image/mkdir", {"path": payload.get("path", "")})
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+def _slugify_name(name: str) -> str:
+    """Transliterate product name to a safe filename base."""
+    import re
+    tr = {
+        "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+        "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+        "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "c",
+        "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu", "я": "ya",
+    }
+    s = "".join(tr.get(ch, ch) for ch in name.lower())
+    s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
+    return s[:80] or "image"
+
+
+@router.get("/media/products")
+async def media_products(keyword: str = "", page: int = 1, limit: int = 60):
+    """Merged product list: imported_products (SQLite) + OpenCart products."""
+    try:
+        limit = max(1, min(200, limit))
+        merged: dict[str, dict] = {}
+
+        # 1) imported products (Все товары) — main source
+        imp = import_store.list_products(limit=100000, page=1, search=keyword.strip())
+        for p in imp.get("products") or []:
+            img = p.get("image") or ""
+            key = f"imp:{p['id']}"
+            merged[key] = {
+                "import_id": p.get("id"),
+                "product_id": p.get("product_id"),
+                "name": p.get("name", ""),
+                "sku": p.get("sku", ""),
+                "image": img,
+                "pushed": p.get("pushed", 0),
+                "source": "import",
+            }
+
+        # 2) OpenCart products — add ones not already in imported (by product_id)
+        oc_ids = {m["product_id"] for m in merged.values() if m.get("product_id")}
+        oc_page = 1
+        kw = keyword.strip().lower()
+        while oc_page <= 20:
+            data = await opencart_api.get_action("product/list", {"limit": 500, "page": oc_page})
+            items = data.get("products") or []
+            if not items:
+                break
+            for p in items:
+                pid = p.get("product_id")
+                if pid in oc_ids:
+                    continue
+                if kw and kw not in (p.get("name") or "").lower() and kw not in str(p.get("sku") or ""):
+                    continue
+                merged[f"oc:{pid}"] = {
+                    "import_id": None,
+                    "product_id": pid,
+                    "name": p.get("name", ""),
+                    "sku": p.get("sku", ""),
+                    "image": p.get("image", ""),
+                    "pushed": 1,
+                    "source": "opencart",
+                }
+            if len(items) < 500:
+                break
+            oc_page += 1
+
+        products = list(merged.values())
+        products.sort(key=lambda x: (x["name"] or "").lower())
+        total = len(products)
+        start = (page - 1) * limit
+        products = products[start:start + limit]
+        for p in products:
+            img = p.get("image") or ""
+            p["image_url"] = f"https://stroiapp.ru/image/{img}" if img else ""
+        return {"status": "ok", "total": total, "count": len(products), "products": products}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.post("/media/assign")
+async def media_assign(payload: dict = Body(...)):
+    """Assign an image path (relative to image/) to a product.
+    Accepts product_id (OpenCart) and/or import_id (imported_products).
+    If product_name given — renames the file to transliterated product name first."""
+    try:
+        product_id = int(payload.get("product_id") or 0)
+        import_id = int(payload.get("import_id") or 0)
+        image = (payload.get("image") or "").strip().lstrip("/")
+        if image.startswith("image/"):
+            image = image[6:]
+        product_name = (payload.get("product_name") or "").strip()
+        if not image or (not product_id and not import_id):
+            return {"status": "error", "detail": "image and product_id/import_id are required"}
+
+        # rename file to product name (photos named after products)
+        if product_name:
+            rn = await opencart_api.post_action("image/rename", {"path": image, "name": _slugify_name(product_name)})
+            if rn.get("status") == "renamed" and rn.get("path"):
+                image = rn["path"]
+
+        result = {"status": "ok", "image": image}
+        if product_id:
+            result["opencart"] = await opencart_api.post_action("product/update", {"product_id": product_id, "image": image})
+        if import_id:
+            import_store.set_image(import_id, image)
+            result["import"] = "ok"
+        return result
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.post("/media/rename")
+async def media_rename(payload: dict = Body(...)):
+    """Rename a file inside image/catalog/ to a new basename."""
+    try:
+        path = (payload.get("path") or "").strip().lstrip("/")
+        name = (payload.get("name") or "").strip()
+        if not path or not name:
+            return {"status": "error", "detail": "path and name are required"}
+        return await opencart_api.post_action("image/rename", {"path": path, "name": _slugify_name(name)})
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
+
+
+@router.get("/media/suggest")
+async def media_suggest(filename: str):
+    """Suggest products matching an uploaded filename (for auto-assign)."""
+    try:
+        import re
+        base = filename.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        base = re.sub(r"_\d{6,}$", "", base)  # strip upload timestamp suffix
+        words = [w for w in re.split(r"[^a-zA-Zа-яА-Я0-9]+", base) if len(w) > 2]
+        if not words:
+            return {"status": "ok", "products": []}
+        # search imported products first (largest catalog)
+        seen = set()
+        products = []
+        for q in (" ".join(words[:4]), words[0] if len(words) > 1 else ""):
+            if not q:
+                continue
+            imp = import_store.list_products(limit=5, page=1, search=q)
+            for p in imp.get("products") or []:
+                k = f"imp:{p['id']}"
+                if k in seen:
+                    continue
+                seen.add(k)
+                products.append({"import_id": p["id"], "product_id": p.get("product_id"), "name": p.get("name", ""), "sku": p.get("sku", "")})
+            if products:
+                break
+
+        # fallback: OpenCart search
+        if not products:
+            data = await opencart_api.get_action("searchProducts", {"keyword": " ".join(words[:4]), "limit": 5})
+            items = data.get("all") or []
+            if not items and len(words) > 1:
+                data = await opencart_api.get_action("searchProducts", {"keyword": words[0], "limit": 5})
+                items = data.get("all") or []
+            products = [{
+                "import_id": None,
+                "product_id": p.get("product_id"),
+                "name": p.get("name", ""),
+                "sku": p.get("sku", ""),
+            } for p in items[:5]]
+        return {"status": "ok", "products": products[:5]}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 

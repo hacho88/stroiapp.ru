@@ -94,6 +94,69 @@ body {
   50% { opacity: 0.4; }
 }
 
+/* Пульсирующее зелёное свечение строки нового заказа (td-фон — надёжно для tr) */
+@keyframes orderNewGlow {
+  0%, 100% { background-color: rgba(16, 185, 129, 0.05); }
+  50% { background-color: rgba(16, 185, 129, 0.16); }
+}
+tr.order-new-glow > td {
+  animation: orderNewGlow 2.2s ease-in-out infinite;
+}
+tr.order-new-glow > td:first-child {
+  box-shadow: inset 3px 0 0 rgba(52, 211, 153, 0.85);
+}
+
+/* ===== Печатная накладная: на экране скрыта, при печати — только она ===== */
+.printable-order-content { display: none; }
+
+@media print {
+  body * { visibility: hidden; }
+  .printable-order-content, .printable-order-content * { visibility: visible; }
+  .printable-order-content {
+    display: block !important;
+    position: absolute; left: 0; top: 0; width: 100%;
+    background: #fff; color: #000;
+    font-family: "Times New Roman", serif; font-size: 12px;
+    padding: 10mm;
+  }
+  .printable-order-content .po-title {
+    font-size: 18px; font-weight: bold; margin-bottom: 4px;
+  }
+  .printable-order-content .po-meta {
+    font-size: 11px; margin-bottom: 10px; color: #000;
+  }
+  .printable-order-content .po-info {
+    width: 100%; border-collapse: collapse; margin-bottom: 10px;
+  }
+  .printable-order-content .po-info td {
+    padding: 2px 4px; vertical-align: top;
+  }
+  .printable-order-content .po-k {
+    width: 140px; font-weight: bold; white-space: nowrap;
+  }
+  .printable-order-content .po-items {
+    width: 100%; border-collapse: collapse; margin-top: 6px;
+  }
+  .printable-order-content .po-items th,
+  .printable-order-content .po-items td {
+    border: 1px solid #000; padding: 3px 5px;
+    font-size: 11px; text-align: left;
+  }
+  .printable-order-content .po-items th {
+    font-weight: bold; background: #fff;
+  }
+  .printable-order-content .po-check {
+    width: 60px; min-width: 60px;
+  }
+  .printable-order-content .po-totals {
+    margin-top: 10px; font-size: 12px; line-height: 1.6;
+  }
+  .printable-order-content .po-sign {
+    margin-top: 40px; display: flex; justify-content: space-between;
+    font-size: 12px;
+  }
+}
+
 /* Smooth scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

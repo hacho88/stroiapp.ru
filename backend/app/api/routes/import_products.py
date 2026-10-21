@@ -36,18 +36,18 @@ async def import_stats():
 
 
 @router.get("/import/products/categories")
-async def import_categories():
+async def import_categories(source: str = ""):
     try:
-        return {"tree": import_store.category_tree()}
+        return {"tree": import_store.category_tree(source=source)}
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
 
 @router.get("/import/products")
-async def import_list(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None):
+async def import_list(limit: int = 50, page: int = 1, search: str = "", cat0: str = "", cat1: str = "", cat2: str = "", pushed: int | None = None, source: str = ""):
     try:
         limit = max(1, min(500, limit))
-        return import_store.list_products(limit=limit, page=page, search=search, cat0=cat0, cat1=cat1, cat2=cat2, pushed=pushed)
+        return import_store.list_products(limit=limit, page=page, search=search, cat0=cat0, cat1=cat1, cat2=cat2, pushed=pushed, source=source)
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}
 
@@ -69,6 +69,10 @@ async def import_bulk(payload: dict = Body(...)):
         products = payload.get("products") or []
         if not products:
             return {"status": "error", "detail": "products required"}
+        default_source = payload.get("source") or ""
+        if default_source:
+            for p in products:
+                p.setdefault("source", default_source)
         result = import_store.bulk_insert(products)
         return {"status": "ok", **result}
     except Exception as exc:

@@ -31,18 +31,20 @@ class DaDataAPI:
             if not suggestions:
                 return {"status": "not_found", "inn": inn}
             org = suggestions[0]
-            value = org.get("value", "")
-            inn_found = org.get("data", {}).get("inn", "")
-            kpp = org.get("data", {}).get("kpp", "")
-            address = org.get("data", {}).get("address", {}).get("value", "")
-            management = org.get("data", {}).get("management", {}).get("name", "")
+            d = org.get("data", {}) or {}
+            name_obj = d.get("name", {}) or {}
             return {
                 "status": "found",
-                "name": value,
-                "inn": inn_found,
-                "kpp": kpp,
-                "address": address,
-                "management": management,
+                "name": name_obj.get("short_with_opf") or org.get("value", ""),
+                "name_full": name_obj.get("full_with_opf") or org.get("value", ""),
+                "inn": d.get("inn", ""),
+                "kpp": d.get("kpp", ""),
+                "ogrn": d.get("ogrn", ""),
+                "type": d.get("type", ""),           # LEGAL | INDIVIDUAL
+                "okved": d.get("okved", ""),
+                "address": (d.get("address") or {}).get("value", ""),
+                "management": (d.get("management") or {}).get("name", ""),
+                "state": (d.get("state") or {}).get("status", ""),
             }
         except Exception as exc:
             return {"status": "error", "detail": str(exc)}
@@ -61,6 +63,22 @@ class DaDataAPI:
             return [s.get("value", "") for s in data.get("suggestions", [])]
         except Exception:
             return []
+
+    async def geolocate_address(self, lat: float, lon: float) -> str:
+        """Координаты → ближайший текстовый адрес (geolocate/address)."""
+        if not self.token:
+            return ""
+        try:
+            response = await self.client.post(
+                f"{self.base_url}/geolocate/address",
+                headers=self._headers(),
+                json={"lat": lat, "lon": lon, "count": 1, "radius_m": 1000},
+            )
+            response.raise_for_status()
+            suggestions = response.json().get("suggestions", [])
+            return suggestions[0].get("value", "") if suggestions else ""
+        except Exception:
+            return ""
 
     async def close(self):
         await self.client.aclose()

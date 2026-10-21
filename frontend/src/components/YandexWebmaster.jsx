@@ -15,7 +15,13 @@ import {
 } from "lucide-react";
 import { apiGet, apiPost } from "../lib/api";
 
+const SITES = {
+  stroiapp: { label: "stroiapp.ru", host: "https:stroiapp.ru:443", sitemap: "https://stroiapp.ru/sitemap.xml" },
+  moscow: { label: "moscow.stroiapp.ru", host: "https:moscow.stroiapp.ru:443", sitemap: "https://moscow.stroiapp.ru/sitemap.xml" },
+};
+
 export default function YandexWebmaster() {
+  const [site, setSite] = useState("stroiapp");
   const [status, setStatus] = useState(null);
   const [summary, setSummary] = useState(null);
   const [sitemaps, setSitemaps] = useState([]);
@@ -36,25 +42,25 @@ export default function YandexWebmaster() {
       setStatus(st);
       if (st.token_configured) {
         try {
-          const sum = await apiGet("/webmaster/host/summary");
+          const sum = await apiGet(`/webmaster/host/summary?site=${site}`);
           setSummary(sum);
         } catch {
           setSummary(null);
         }
         try {
-          const sm = await apiGet("/webmaster/sitemaps");
+          const sm = await apiGet(`/webmaster/sitemaps?site=${site}`);
           setSitemaps(sm.sitemaps || []);
         } catch {
           setSitemaps([]);
         }
         try {
-          const q = await apiGet("/webmaster/search-queries");
+          const q = await apiGet(`/webmaster/search-queries?site=${site}`);
           setQueries(q.queries || []);
         } catch {
           setQueries([]);
         }
         try {
-          const c = await apiGet("/webmaster/counters");
+          const c = await apiGet(`/webmaster/counters?site=${site}`);
           setCounters(c);
         } catch {
           setCounters(null);
@@ -74,7 +80,7 @@ export default function YandexWebmaster() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [site]);
 
   useEffect(() => {
     if (status?.token_configured) {
@@ -87,7 +93,7 @@ export default function YandexWebmaster() {
   const addSitemap = async () => {
     setLoading(true);
     try {
-      const r = await apiPost("/webmaster/sitemaps/add", { url: "https://stroiapp.ru/sitemap.xml" });
+      const r = await apiPost("/webmaster/sitemaps/add", { site, url: SITES[site].sitemap });
       setMessage(r.status === "already_added" ? "Sitemap уже добавлен" : "Sitemap добавлен");
       await load();
     } catch (e) {
@@ -107,7 +113,7 @@ export default function YandexWebmaster() {
     }
     setLoading(true);
     try {
-      const r = await apiPost("/webmaster/recrawl", { urls });
+      const r = await apiPost("/webmaster/recrawl", { urls, site });
       setRecrawlResult(r.results);
       setMessage(`Запрос переобхода: ${r.count} URL`);
     } catch (e) {
@@ -124,12 +130,25 @@ export default function YandexWebmaster() {
           <Globe className="text-amber-400" size={28} />
           <div>
             <h2 className="text-xl font-bold">Яндекс.Вебмастер</h2>
-            <p className="text-sm text-slate-400">Мониторинг индексации stroiapp.ru</p>
+            <p className="text-sm text-slate-400">Мониторинг индексации {SITES[site].label}</p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 rounded-lg bg-slate-900 p-1">
+            {Object.entries(SITES).map(([key, s]) => (
+              <button
+                key={key}
+                onClick={() => setSite(key)}
+                className={`rounded-md px-3 py-1 text-sm font-medium ${
+                  site === key ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
           <a
-            href="https://webmaster.yandex.ru/site/https:stroiapp.ru:443/"
+            href={`https://webmaster.yandex.ru/site/${SITES[site].host}/`}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm hover:bg-slate-700"
@@ -359,7 +378,9 @@ export default function YandexWebmaster() {
         <textarea
           value={recrawlUrls}
           onChange={(e) => setRecrawlUrls(e.target.value)}
-          placeholder={"https://stroiapp.ru/shtukaturka-gipsovaya-vidart-standart-seryy-30-kg-dmitrov\nhttps://stroiapp.ru/rotband-moscow"}
+          placeholder={site === "moscow"
+            ? "https://moscow.stroiapp.ru/journal/?slug=...\nhttps://moscow.stroiapp.ru/category/?slug=..."
+            : "https://stroiapp.ru/shtukaturka-gipsovaya-vidart-standart-seryy-30-kg-dmitrov\nhttps://stroiapp.ru/rotband-moscow"}
           rows={4}
           className="w-full rounded-lg border border-slate-700 bg-slate-900 p-3 text-sm font-mono focus:border-emerald-500 focus:outline-none"
         />

@@ -60,3 +60,5 @@ admin_modification_refresh.txt
 diag_output.txt
 health_check_result.txt
 mod_xml/
+
+frontend/dist.zip

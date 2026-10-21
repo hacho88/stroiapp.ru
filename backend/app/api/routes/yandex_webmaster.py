@@ -18,6 +18,16 @@ router = APIRouter(prefix="/webmaster", tags=["webmaster"])
 WM_API = "https://api.webmaster.yandex.net/v4"
 SITE_URL = "https://stroiapp.ru/"
 
+# Доступные хосты в Яндекс.Вебмастере: site-param -> host_id
+WM_HOSTS = {
+    "stroiapp": "https:stroiapp.ru:443",
+    "moscow": "https:moscow.stroiapp.ru:443",
+}
+WM_SITES = {
+    "stroiapp": "https://stroiapp.ru",
+    "moscow": "https://moscow.stroiapp.ru",
+}
+
 
 def _headers() -> dict:
     token = settings.yandex_webmaster_token
@@ -44,8 +54,11 @@ async def _ensure_user_id() -> int:
     return _uid_cache
 
 
-def _host_id_enc() -> str:
-    return urllib.parse.quote("https:stroiapp.ru:443", safe="")
+def _host_id_enc(site: str = "stroiapp") -> str:
+    host_id = WM_HOSTS.get(site)
+    if not host_id:
+        raise HTTPException(status_code=400, detail=f"Неизвестный site: {site}. Доступно: {list(WM_HOSTS)}")
+    return urllib.parse.quote(host_id, safe="")
 
 
 @router.get("/status")
@@ -74,10 +87,10 @@ async def webmaster_status():
 
 
 @router.get("/host/summary")
-async def host_summary():
+async def host_summary(site: str = "stroiapp"):
     """Общая информация о сайте: количество страниц в индексе, статус."""
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/summary"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/summary"
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         r = await client.get(url, headers=_headers())
         if r.status_code == 404:
@@ -87,10 +100,10 @@ async def host_summary():
 
 
 @router.get("/sitemaps")
-async def get_sitemaps(limit: int = 50):
+async def get_sitemaps(limit: int = 50, site: str = "stroiapp"):
     """Список sitemap файлов со статусом индексации."""
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/sitemaps"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/sitemaps"
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         r = await client.get(url, headers=_headers(), params={"limit": min(limit, 100)})
         if r.status_code == 404:
@@ -102,9 +115,10 @@ async def get_sitemaps(limit: int = 50):
 @router.post("/sitemaps/add")
 async def add_sitemap(payload: dict):
     """Добавить sitemap в Яндекс.Вебмастер."""
-    sitemap_url = payload.get("url", "https://stroiapp.ru/sitemap.xml")
+    site = payload.get("site", "stroiapp")
+    sitemap_url = payload.get("url") or f"{WM_SITES.get(site, WM_SITES['stroiapp'])}/sitemap.xml"
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/user-added-sitemaps"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/user-added-sitemaps"
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         r = await client.post(url, headers=_headers(), json={"url": sitemap_url})
         if r.status_code == 409:
@@ -114,10 +128,10 @@ async def add_sitemap(payload: dict):
 
 
 @router.get("/sitemaps/{sitemap_id}")
-async def sitemap_details(sitemap_id: str):
+async def sitemap_details(sitemap_id: str, site: str = "stroiapp"):
     """Детальная информация о sitemap: статус, количество URL, ошибки."""
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/sitemaps/{urllib.parse.quote(sitemap_id, safe='')}"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/sitemaps/{urllib.parse.quote(sitemap_id, safe='')}"
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         r = await client.get(url, headers=_headers())
         if r.status_code == 404:
@@ -130,13 +144,14 @@ async def sitemap_details(sitemap_id: str):
 async def request_recrawl(payload: dict):
     """Запрос переобхода страницы (до 100 URL за раз)."""
     urls = payload.get("urls", [])
+    site = payload.get("site", "stroiapp")
     if not urls:
         raise HTTPException(status_code=400, detail="urls обязателен")
     if len(urls) > 100:
         raise HTTPException(status_code=400, detail="Максимум 100 URL за раз")
 
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/recrawl"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/recrawl"
     results = []
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         for u in urls:
@@ -155,10 +170,10 @@ async def request_recrawl(payload: dict):
 
 
 @router.get("/indexing/stats")
-async def indexing_stats():
+async def indexing_stats(site: str = "stroiapp"):
     """Статистика индексации: страницы в поиске, исключённые страницы."""
     uid = await _ensure_user_id()
-    base = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}"
+    base = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}"
     result = {}
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         for name, endpoint in [
@@ -181,12 +196,12 @@ async def indexing_stats():
 
 
 @router.get("/counters")
-async def counters():
+async def counters(site: str = "stroiapp"):
     """Счётчики для дашборда: страницы в поиске, в индексе, исключённые, проблемы, sitemap."""
     if not settings.yandex_webmaster_token:
         return {"available": False, "detail": "Токен не настроен"}
     uid = await _ensure_user_id()
-    base = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}"
+    base = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}"
 
     counters = {
         "available": True,
@@ -249,10 +264,10 @@ async def counters():
 
 
 @router.get("/search-queries")
-async def search_queries(limit: int = 20):
+async def search_queries(limit: int = 20, site: str = "stroiapp"):
     """Популярные поисковые запросы, по которым сайт показывается."""
     uid = await _ensure_user_id()
-    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc()}/search-queries"
+    url = f"{WM_BASE}/user/{uid}/hosts/{_host_id_enc(site)}/search-queries"
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         try:
             r = await client.get(url, headers=_headers(), params={"limit": min(limit, 100)})

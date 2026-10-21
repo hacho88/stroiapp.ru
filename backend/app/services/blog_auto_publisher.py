@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 
 
 class BlogAutoPublisher:
-    """Background task that auto-publishes 1-2 blog articles per day."""
+    """Background task that auto-publishes 1-2 Journal articles per day (moscow.stroiapp.ru)."""
 
     def __init__(self) -> None:
         self._running = False
