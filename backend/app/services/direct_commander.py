@@ -105,6 +105,34 @@ class DirectCommander:
             }]
         }, use_v501=True)
 
+    def create_probe_campaign(self, name: str) -> dict:
+        """Кампания-зонд для снятия AuctionBids. Network выключен (SERVING_OFF) —
+        HIGHEST_POSITION несовместим с NETWORK_DEFAULT, а зонд всё равно не крутится."""
+        return self._request("campaigns", "add", {
+            "Campaigns": [{
+                "Name": name,
+                "StartDate": datetime.now().strftime("%Y-%m-%d"),
+                "TimeZone": "Europe/Moscow",
+                "UnifiedCampaign": {
+                    "BiddingStrategy": {
+                        "Search": {
+                            "BiddingStrategyType": "HIGHEST_POSITION",
+                            "PlacementTypes": {
+                                "SearchResults": "YES",
+                                "ProductGallery": "NO",
+                                "DynamicPlaces": "NO",
+                                "Maps": "NO",
+                                "SearchOrganizationList": "NO",
+                            },
+                        },
+                        "Network": {
+                            "BiddingStrategyType": "SERVING_OFF",
+                        },
+                    },
+                },
+            }]
+        }, use_v501=True)
+
     def create_ad_group(self, campaign_id: int, name: str, region_ids: list[int] | None = None) -> dict:
         return self._request("adgroups", "add", {
             "AdGroups": [{
@@ -142,7 +170,9 @@ class DirectCommander:
             "SelectionCriteria": {
                 "KeywordIds": keyword_ids[:1000]
             },
-            "FieldNames": ["KeywordId", "Bid", "ContextBid", "CompetitorsBid", "SearchPrices", "AuctionBids"],
+            "FieldNames": ["KeywordId", "CampaignId", "AdGroupId", "ServingStatus"],
+            "SearchFieldNames": ["Bid", "AuctionBids"],
+            "NetworkFieldNames": ["Bid"],
         })
         return result.get("result", {}).get("KeywordBids", [])
 
@@ -162,7 +192,80 @@ class DirectCommander:
             "SelectionCriteria": {
                 "KeywordIds": keyword_ids[:1000]
             },
-            "FieldNames": ["KeywordId", "Bid", "AuctionBids"],
+            "FieldNames": ["KeywordId"],
+            "SearchFieldNames": ["Bid", "AuctionBids"],
+        })
+        return result.get("result", {}).get("KeywordBids", [])
+
+    # --- Микро-единицы: все деньги в API Директа — micro (1₽ = 1_000_000) ---
+    MICRO = 1_000_000
+
+    @staticmethod
+    def micro_to_rub(value) -> float:
+        try:
+            return round(float(value) / DirectCommander.MICRO, 2)
+        except (TypeError, ValueError):
+            return 0.0
+
+    @staticmethod
+    def rub_to_micro(rubles: float) -> int:
+        return int(round(float(rubles) * DirectCommander.MICRO))
+
+    def suspend_campaign(self, campaign_id: int) -> dict:
+        return self._request("campaigns", "suspend", {
+            "SelectionCriteria": {"Ids": [campaign_id]}
+        }, use_v501=True)
+
+    def resume_campaign(self, campaign_id: int) -> dict:
+        return self._request("campaigns", "resume", {
+            "SelectionCriteria": {"Ids": [campaign_id]}
+        }, use_v501=True)
+
+    def get_ad_groups(self, campaign_id: int) -> list[dict]:
+        result = self._request("adgroups", "get", {
+            "SelectionCriteria": {"CampaignIds": [campaign_id]},
+            "FieldNames": ["Id", "Name", "CampaignId", "Status"],
+        })
+        return result.get("result", {}).get("AdGroups", [])
+
+    def get_keywords_by_campaign(self, campaign_id: int) -> list[dict]:
+        result = self._request("keywords", "get", {
+            "SelectionCriteria": {"CampaignIds": [campaign_id]},
+            "FieldNames": ["Id", "Keyword", "AdGroupId", "Bid", "ServingStatus"],
+        })
+        return result.get("result", {}).get("Keywords", [])
+
+    def get_ads_by_group(self, ad_group_id: int) -> list[dict]:
+        result = self._request("ads", "get", {
+            "SelectionCriteria": {"AdGroupIds": [ad_group_id]},
+            "FieldNames": ["Id", "AdGroupId", "State", "Status"],
+        })
+        return result.get("result", {}).get("Ads", [])
+
+    def delete_keywords(self, keyword_ids: list[int]) -> dict:
+        return self._request("keywords", "delete", {
+            "SelectionCriteria": {"Ids": keyword_ids[:1000]}
+        })
+
+    def set_keyword_bids_bulk(self, items: list[dict]) -> dict:
+        """items: [{keyword_id, bid_micro, context_bid_micro?}] — до 1000 за раз."""
+        bids = []
+        for it in items[:1000]:
+            entry = {"KeywordId": int(it["keyword_id"]), "Bid": int(it["bid_micro"])}
+            if it.get("context_bid_micro"):
+                entry["ContextBid"] = int(it["context_bid_micro"])
+            bids.append(entry)
+        return self._request("keywordbids", "set", {"KeywordBids": bids})
+
+    def get_auction_full(self, keyword_ids: list[int]) -> list[dict]:
+        """Полные данные аукциона: Search.Bid (наша ставка) + Search.AuctionBids
+        (цены входа в позиции). SearchPrices в API v5 не существует."""
+        result = self._request("keywordbids", "get", {
+            "SelectionCriteria": {
+                "KeywordIds": keyword_ids[:1000]
+            },
+            "FieldNames": ["KeywordId", "CampaignId", "AdGroupId", "ServingStatus"],
+            "SearchFieldNames": ["Bid", "AuctionBids"],
         })
         return result.get("result", {}).get("KeywordBids", [])
 

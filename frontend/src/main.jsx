@@ -1014,6 +1014,72 @@ function App() {
     }
   }
 
+  async function loadAuctionStatus() {
+    try {
+      const data = await apiGet("/competitors-bids/auction-status");
+      setAuctionData(data);
+      if (data.target_campaign_id) setAuctionCampaignId(String(data.target_campaign_id));
+    } catch (err) {
+      console.warn("auction-status:", err.message);
+    }
+  }
+
+  async function loadDirectCampaigns() {
+    try {
+      const data = await apiGet("/competitors-bids/direct-campaigns");
+      if (data.campaigns) setDirectCampaigns(data.campaigns);
+    } catch (err) {
+      console.warn("direct-campaigns:", err.message);
+    }
+  }
+
+  async function runAuctionScan() {
+    setAuctionLoading(true);
+    try {
+      const data = await apiPost("/competitors-bids/auction-scan", {});
+      if (data.status === "no_token" || data.status === "error") {
+        addToast(data.message || "Ошибка сканирования", "warning");
+      } else {
+        addToast(`Аукцион: ${data.with_auction_data}/${data.keywords} ключей с данными`, "success");
+      }
+      await loadAuctionStatus();
+    } catch (err) {
+      addToast("Ошибка скана аукциона: " + err.message, "error");
+    } finally {
+      setAuctionLoading(false);
+    }
+  }
+
+  async function applyHoldTop() {
+    setHoldLoading(true);
+    try {
+      const payload = auctionCampaignId ? { campaign_id: Number(auctionCampaignId) } : {};
+      const data = await apiPost("/competitors-bids/hold-top", payload);
+      if (data.status === "ok") {
+        addToast(`Ставки выставлены: ${data.applied} ключей на топ`, "success");
+      } else {
+        addToast(data.message || "Не применено", "warning");
+      }
+      await loadAuctionStatus();
+    } catch (err) {
+      addToast("Ошибка hold-top: " + err.message, "error");
+    } finally {
+      setHoldLoading(false);
+    }
+  }
+
+  async function toggleAutoHold(enabled) {
+    try {
+      const payload = { enabled };
+      if (auctionCampaignId) payload.campaign_id = Number(auctionCampaignId);
+      await apiPost("/competitors-bids/hold-auto", payload);
+      addToast(enabled ? "Авто-удержание топа ВКЛ (цикл 4ч)" : "Авто-удержание ВЫКЛ", enabled ? "success" : "warning");
+      await loadAuctionStatus();
+    } catch (err) {
+      addToast("Ошибка: " + err.message, "error");
+    }
+  }
+
   async function autoDiscoverCompetitors() {
     const query = discoverQuery.trim();
     if (!query) { addToast("Введите поисковый запрос", "error"); return; }
@@ -1794,7 +1860,7 @@ function App() {
                           <tbody>
                             {allProducts.map((p) => (
                               <tr key={p.id} onClick={() => openImportProduct(p.id)} className="cursor-pointer border-t border-slate-800/50 hover:bg-slate-800/30">
-                                <td className="py-2 pr-2">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}</td>
+                                <td className="py-2 pr-2">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : p.image && String(p.image).startsWith('fmimg/') ? <img src={"/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}</td>
                                 <td className="py-2 pr-2"><div className="max-w-md truncate font-medium" title={p.name}>{p.name || "Без названия"}</div><div className="text-xs text-slate-500">xml_id: {p.xml_id}{p.prop_type ? ` · ${p.prop_type}` : ""}</div></td>
                                 <td className="py-2 pr-2 text-xs text-slate-400"><div className="max-w-[220px] truncate" title={catPath(p)}>{catPath(p) || "—"}</div></td>
                                 <td className="py-2 pr-2 text-right font-medium">{money(Number(p.price || 0))}</td>
@@ -1852,6 +1918,8 @@ function App() {
                             <div>
                               {p.image && String(p.image).startsWith('catalog/') ? (
                                 <img src={"https://stroiapp.ru/image/" + p.image} alt={p.name} className="w-full rounded-xl border border-slate-700 object-cover" />
+                              ) : p.image && String(p.image).startsWith('fmimg/') ? (
+                                <img src={"/" + p.image} alt={p.name} className="w-full rounded-xl border border-slate-700 object-cover" />
                               ) : (
                                 <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-slate-600"><Package size={48} /></div>
                               )}
@@ -2459,6 +2527,88 @@ function App() {
                     )}
                   </div>
                 )}
+
+                {/* АУКЦИОН #1 — живые ставки конкурентов по нашим товарам */}
+                <div className="mb-6 rounded-xl bg-amber-500/5 p-4 border border-amber-500/20">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">Аукцион Директа — позиция #1 по нашим товарам</span>
+                    {auctionData?.auto_hold && (
+                      <span className="rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold text-emerald-400 uppercase">Авто-удержание ON</span>
+                    )}
+                    {auctionData?.last_scan && (
+                      <span className="text-[10px] text-slate-500">скан #{auctionData.last_scan.id} · {auctionData.last_scan.created_at} · данных {auctionData.last_scan.keywords_with_data}/{auctionData.last_scan.keywords_total}</span>
+                    )}
+                  </div>
+                  <p className="mb-3 text-xs text-slate-400">
+                    Система берёт маржинальные товары → генерирует ключи → снимает <b>живые аукционные ставки</b> Директа (кампания-зонд, не тратит бюджет) → считает ставку «топ+1₽» с потолком от маржи → может держать позицию #1 автоматически каждые 4 часа.
+                  </p>
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={runAuctionScan}
+                      disabled={auctionLoading}
+                      className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+                    >
+                      {auctionLoading ? "Сканирую аукцион..." : "Сканировать аукцион"}
+                    </button>
+                    <select
+                      value={auctionCampaignId}
+                      onChange={(e) => setAuctionCampaignId(e.target.value)}
+                      onFocus={loadDirectCampaigns}
+                      className="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-amber-500"
+                    >
+                      <option value="">— боевая кампания (авто) —</option>
+                      {directCampaigns.map((c) => (
+                        <option key={c.id} value={c.id} disabled={c.is_probe}>
+                          {c.name}{c.is_probe ? " (зонд)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={applyHoldTop}
+                      disabled={holdLoading || !auctionData?.items?.length}
+                      className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                      {holdLoading ? "Выставляю..." : "Ставить топ+1₽"}
+                    </button>
+                    <button
+                      onClick={() => toggleAutoHold(!auctionData?.auto_hold)}
+                      className={`rounded-lg px-4 py-2 text-sm font-bold ${auctionData?.auto_hold ? "bg-slate-700 text-white hover:bg-slate-600" : "bg-violet-500 text-white hover:bg-violet-400"}`}
+                    >
+                      {auctionData?.auto_hold ? "Выкл авто" : "Авто каждые 4ч"}
+                    </button>
+                    {!auctionData && (
+                      <button onClick={loadAuctionStatus} className="text-xs text-slate-500 underline">загрузить статус</button>
+                    )}
+                  </div>
+                  {auctionData?.items?.length > 0 && (
+                    <div className="max-h-64 overflow-y-auto rounded border border-slate-800">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-slate-900">
+                          <tr className="text-left text-slate-400">
+                            <th className="px-2 py-1.5">Ключ</th>
+                            <th className="px-2 py-1.5">Товар</th>
+                            <th className="px-2 py-1.5 text-right">Маржа</th>
+                            <th className="px-2 py-1.5 text-right">Топ конкурента</th>
+                            <th className="px-2 py-1.5 text-right">Наша ставка</th>
+                            <th className="px-2 py-1.5 text-center">Статус</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {auctionData.items.map((it) => (
+                            <tr key={it.id} className="border-t border-slate-800/60">
+                              <td className="px-2 py-1.5 text-slate-200">{it.keyword}</td>
+                              <td className="max-w-[200px] truncate px-2 py-1.5 text-slate-400" title={it.product_name}>{it.product_name || "—"}</td>
+                              <td className="px-2 py-1.5 text-right text-slate-400">{it.product_margin ? `${Math.round(it.product_margin)}₽` : "—"}</td>
+                              <td className="px-2 py-1.5 text-right font-semibold text-amber-300">{it.top_bid_rub ? `${it.top_bid_rub}₽` : "нет аукциона"}</td>
+                              <td className="px-2 py-1.5 text-right font-bold text-emerald-300">{it.recommended_rub ? `${it.recommended_rub}₽` : "—"}</td>
+                              <td className="px-2 py-1.5 text-center">{it.applied ? <span className="text-emerald-400">на топе</span> : <span className="text-slate-500">ждёт</span>}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
 
                 {/* Автопоиск конкурентов */}
                 <div className="mb-6 rounded-xl bg-violet-500/5 p-4 border border-violet-500/20">
@@ -4812,5 +4962,4 @@ if ("serviceWorker" in navigator) {
   });
 }
 
-createRoot(document.getElementById("root")).render(<App />);
 createRoot(document.getElementById("root")).render(<App />);

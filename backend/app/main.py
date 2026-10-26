@@ -105,6 +105,10 @@ async def start_background_tasks():
     blog_auto = get_blog_auto_publisher()
     asyncio.create_task(blog_auto.start())
 
+    # Аукцион Директа: фоновый цикл удержания позиции #1 (активен при auto_hold=1)
+    from app.services.auction_hold import auto_hold_loop
+    asyncio.create_task(auto_hold_loop())
+
     # Наполняем «Товары на сайте» реальным каталогом OpenCart — витрина читает отсюда
     async def _sync():
         try:

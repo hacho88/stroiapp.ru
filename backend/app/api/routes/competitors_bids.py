@@ -327,3 +327,67 @@ def analyze_bids(payload: dict):
         error_trace = traceback.format_exc()
         print("[ERROR] analyze_bids:", error_trace)
         raise HTTPException(status_code=500, detail=f"Yandex API error: {exc}\n{error_trace[:500]}")
+
+
+# ============ АУКЦИОН #1: зонд + удержание топа ============
+
+@router.post("/auction-scan")
+async def auction_scan(payload: dict = Body(default={})):
+    """Сканирует живой аукцион Директа по ключам наших маржинальных товаров.
+    Создаёт/переиспользует остановленную зонд-кампанию и снимает AuctionBids."""
+    from app.services.auction_hold import auction_hold
+    return await asyncio.to_thread(
+        auction_hold.scan,
+        min_roi=int(payload.get("min_roi", 50)),
+        product_limit=int(payload.get("product_limit", 30)),
+        epsilon_rub=float(payload.get("epsilon_rub", 1.0)),
+        max_bid_rub=float(payload.get("max_bid_rub", 0)),
+        margin_cap_pct=float(payload.get("margin_cap_pct", 10.0)),
+    )
+
+
+@router.get("/auction-status")
+def auction_status():
+    """Последний скан аукциона + флаги автоподдержания."""
+    from app.services.auction_hold import auction_hold
+    return auction_hold.status()
+
+
+@router.post("/hold-top")
+async def hold_top(payload: dict = Body(default={})):
+    """Выставляет рекомендованные ставки (топ+ε) в боевой кампании."""
+    from app.services.auction_hold import auction_hold
+    target = payload.get("campaign_id")
+    return await asyncio.to_thread(
+        auction_hold.hold_top, int(target) if target else None)
+
+
+@router.post("/hold-auto")
+def hold_auto(payload: dict):
+    """Вкл/выкл автоматическое удержание топа (фоновый цикл 4ч)."""
+    from app.db import auction_store
+    enabled = bool(payload.get("enabled"))
+    auction_store.set_setting("auto_hold", "1" if enabled else "0")
+    if payload.get("campaign_id"):
+        auction_store.set_setting("target_campaign_id", str(payload["campaign_id"]))
+    return {"status": "ok", "auto_hold": enabled,
+            "note": "Фоновый цикл переснимает аукцион и обновляет ставки каждые 4 часа"}
+
+
+@router.get("/direct-campaigns")
+def direct_campaigns():
+    """Список кампаний Директа с пометкой зондовой — для выбора боевой."""
+    from app.services.direct_commander import get_direct_commander
+    from app.services.auction_hold import PROBE_CAMPAIGN_NAME
+    dc = get_direct_commander()
+    if not dc.token:
+        return {"status": "no_token", "campaigns": []}
+    camps = dc.get_campaigns()
+    return {
+        "status": "ok",
+        "campaigns": [
+            {"id": c.get("Id"), "name": c.get("Name"),
+             "state": c.get("State"), "is_probe": c.get("Name") == PROBE_CAMPAIGN_NAME}
+            for c in camps
+        ],
+    }
