@@ -7,9 +7,11 @@ import secrets
 import time
 from datetime import datetime
 
+from urllib.parse import quote
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from app.core.config import settings
@@ -71,10 +73,10 @@ def _journal_card(a: dict) -> dict:
 
 
 @router.get("/journal")
-def storefront_journal(limit: int = Query(20, ge=1, le=50)):
+def storefront_journal(limit: int = Query(20, ge=1, le=1000)):
     """Опубликованные статьи Журнала — карточки для секции на витрине."""
     from app.db import journal_store
-    items = journal_store.list_articles(status="published", limit=min(limit, 50))
+    items = journal_store.list_articles(status="published", limit=min(limit, 1000))
     return {"articles": [_journal_card(a) for a in items], "total": len(items)}
 
 
@@ -206,6 +208,32 @@ def storefront_product(key: str):
     return {"status": "ok", "product": _public(p)}
 
 
+@router.get("/product/{key}/analogs")
+def storefront_product_analogs(key: str):
+    """До 3 аналогов товара по сходству характеристик.
+    Подбор предрассчитан скриптом attr-аналогов в product_analogs;
+    пусто — фронт показывает свою эвристику по категории."""
+    from app.db import analog_store
+    items = product_db.list_products()
+    p = None
+    if key.isdigit():
+        pid = int(key)
+        p = next((x for x in items if x.product_id == pid), None)
+    if p is None:
+        p = product_db.get_by_sku(key)
+    if p is None:
+        p = next((x for x in items if str(x.sku) == key or str(x.product_id) == key), None)
+    if not p:
+        return {"status": "ok", "analogs": []}
+    by_id = {x.product_id: x for x in items}
+    out = []
+    for a in analog_store.get_analogs(int(p.product_id)):
+        q = by_id.get(a.get("pid"))
+        if q and q.name and q.retail_price and q.retail_price > 0:
+            out.append(_public(q))
+    return {"status": "ok", "analogs": out}
+
+
 _cat_cache = {"ts": 0.0, "data": []}
 
 
@@ -257,6 +285,114 @@ async def storefront_categories():
     if top:
         _cat_cache.update({"ts": time.time(), "data": top})
     return {"status": "ok", "categories": top}
+
+
+@router.get("/category-seo/{category_id}")
+def storefront_category_seo(category_id: int):
+    """SEO-пакет категории (текст, meta, FAQ) — генерируется контент-фабрикой.
+    Витрина читает его на билде для SSG-страниц /category/{id}/."""
+    from app.db import catseo_store
+    row = catseo_store.get(category_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="SEO-текст для категории не найден")
+    return {"status": "ok", "category_seo": row}
+
+
+@router.get("/product-seo/{product_id}")
+def storefront_product_seo(product_id: int):
+    """SEO-пакет карточки товара (текст, meta, FAQ) — генерируется контент-фабрикой.
+    Витрина читает его на билде для SSG-страниц /product/{id}/."""
+    from app.db import prodseo_store
+    row = prodseo_store.get(product_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="SEO-текст для товара не найден")
+    return {"status": "ok", "product_seo": row}
+
+
+# ---------- YML-фид каталога для рекламы (Direct smart banners, Маркет, Avito) ----------
+
+_FEED_TTL = 3600
+_feed_cache: dict = {"ts": 0.0, "xml": ""}
+VITRINA = "https://moscow.stroiapp.ru"
+
+
+def _xml_escape(s: str) -> str:
+    from xml.sax.saxutils import escape
+    return escape(str(s), {'"': "&quot;"})
+
+
+def _strip_html(s: str, limit: int = 3000) -> str:
+    t = re.sub(r"<[^>]+>", " ", s or "")
+    t = re.sub(r"\s+", " ", t).strip()
+    return t[:limit]
+
+
+@router.get("/feed.xml")
+async def storefront_feed():
+    """YML (Yandex Market Language) фид: все товары витрины с ценами и фото.
+    URL офферов ведут на moscow.stroiapp.ru/product/{id}/."""
+    now = time.time()
+    if now - _feed_cache["ts"] < _FEED_TTL and _feed_cache["xml"]:
+        return Response(content=_feed_cache["xml"], media_type="application/xml")
+
+    # плоские категории OpenCart
+    data = await opencart_api.get_action("category/list")
+    cats = {}
+    for c in (data or {}).get("categories") or []:
+        cid = str(c.get("category_id", ""))
+        if cid.isdigit() and c.get("name"):
+            cats[int(cid)] = {
+                "name": c["name"].strip(),
+                "parent": int(c.get("parent_id") or 0),
+            }
+
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        f'<yml_catalog date="{datetime.now().strftime("%Y-%m-%d %H:%M")}">',
+        "<shop>",
+        "<name>StroiApp — стройматериалы в Москве</name>",
+        "<company>ИП Калмуратов Тологон Курбанбекович</company>",
+        f"<url>{VITRINA}/</url>",
+        "<currencies><currency id=\"RUR\" rate=\"1\"/></currencies>",
+        "<categories>",
+    ]
+    for cid, c in cats.items():
+        parent = f' parentId="{c["parent"]}"' if c["parent"] else ""
+        out.append(f'<category id="{cid}"{parent}>{_xml_escape(c["name"])}</category>')
+    out.append("</categories>")
+    out.append(
+        "<delivery-options><option cost=\"500\" days=\"1\" order-before=\"18\"/></delivery-options>"
+    )
+    out.append("<offers>")
+
+    count = 0
+    for p in product_db.list_products():
+        if not (p.product_id and p.name and p.retail_price and p.retail_price > 0):
+            continue
+        cat_id = (p.category_ids or [p.category_id or 0])[0]
+        available = "true" if (p.quantity or 0) > 0 else "false"
+        desc = _strip_html(getattr(p, "description", "") or "")
+        block = [
+            f'<offer id="{p.product_id}" available="{available}">',
+            f"<url>{VITRINA}/product/{p.product_id}/</url>",
+            f"<price>{int(p.retail_price)}</price>",
+            "<currencyId>RUR</currencyId>",
+            f"<categoryId>{cat_id}</categoryId>" if cat_id else "",
+            f"<picture>{_xml_escape(_img(p.image))}</picture>" if p.image else "",
+            f"<name>{_xml_escape(p.name)}</name>",
+            f"<description>{_xml_escape(desc)}</description>" if desc else "",
+            f"<vendorCode>{_xml_escape(p.sku)}</vendorCode>" if p.sku else "",
+            "<delivery>true</delivery>",
+            "<pickup>true</pickup>",
+            "</offer>",
+        ]
+        out.append("\n".join(x for x in block if x))
+        count += 1
+
+    out.append("</offers></shop></yml_catalog>")
+    xml = "\n".join(out)
+    _feed_cache.update({"ts": now, "xml": xml})
+    return Response(content=xml, media_type="application/xml")
 
 
 # ---------- ИИ-калькулятор: данные СТРОГО из раздела «Товары на сайте» (ProductDB) ----------
@@ -1598,6 +1734,323 @@ async def storefront_auth_verify(req: SmsVerifyReq):
     user_store.ensure_user(token, phone)
     print(f"[storefront] user logged in: {phone}")
     return {"status": "ok", "token": token, "user": {"phone": phone}}
+
+
+# ---------- Вход через Яндекс ID (OAuth) и мессенджер MAX ----------
+
+_OAUTH_STATE: dict[str, dict] = {}   # state -> {"ts": float, "redirect": str}
+_OAUTH_TTL = 600                     # state живёт 10 минут
+_MAX_SESSIONS: dict[str, dict] = {}  # sid -> {"ts", "status", "code", "token", "user"}
+_MAX_SESS_TTL = 900                  # сессия входа через MAX — 15 минут
+
+
+def _issue_token(identity: str) -> str:
+    """Детерминированный токен витрины: user:<phone> или <provider>:<external_id>."""
+    return hashlib.sha256(f"{identity}:{settings.auth_secret}".encode()).hexdigest()
+
+
+def _firebase_config() -> dict:
+    """Публичный web-конфиг Firebase (тот же, что в JS на stroiapp.ru)."""
+    if not settings.firebase_web_config:
+        return {}
+    try:
+        cfg = json.loads(settings.firebase_web_config)
+        return cfg if isinstance(cfg, dict) else {}
+    except Exception:
+        return {}
+
+
+@router.get("/auth/providers")
+async def storefront_auth_providers():
+    """Какие способы входа настроены — фронт прячет недоступные кнопки."""
+    fb = _firebase_config()
+    return {
+        "status": "ok",
+        "yandex": bool(settings.yandex_oauth_client_id),
+        "max": bool(settings.max_bot_token and settings.max_bot_username),
+        "google": bool(fb.get("projectId") and fb.get("apiKey")),
+        "firebase": fb,
+    }
+
+
+class FirebaseLoginReq(BaseModel):
+    id_token: str
+
+
+@router.post("/auth/google")    # алиас для совместимости
+@router.post("/auth/firebase")
+async def storefront_firebase_login(req: FirebaseLoginReq):
+    """Вход через Firebase Auth (Google-аккаунт или телефон по SMS):
+    фронт присылает Firebase ID-token → Identity Toolkit accounts:lookup
+    → email-юзеры: токен google:<localId>; телефонные: user:{phone} — сливается
+    с профилем обычного SMS-входа."""
+    fb = _firebase_config()
+    api_key = fb.get("apiKey", "")
+    if not api_key:
+        return {"status": "error", "detail": "Вход через Firebase не настроен"}
+    if not req.id_token:
+        return {"status": "error", "detail": "Пустой токен"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.post(
+                "https://identitytoolkit.googleapis.com/v1/accounts:lookup",
+                params={"key": api_key},
+                json={"idToken": req.id_token},
+            )
+            data = r.json() if r.status_code == 200 else {}
+    except Exception:
+        return {"status": "error", "detail": "Не удалось проверить токен"}
+
+    users = data.get("users") or []
+    if not users:
+        print(f"[storefront] firebase login rejected: {data}")
+        return {"status": "error", "detail": "Невалидный токен"}
+
+    u = users[0]
+    sub = str(u.get("localId") or "")
+    if not sub:
+        return {"status": "error", "detail": "Невалидный токен"}
+
+    phone = _normalize_phone(u.get("phoneNumber") or "")
+    email = u.get("email") or ""
+    name = u.get("displayName") or (email.split("@")[0] if email else "")
+
+    if len(phone) == 11:
+        token = _issue_token(f"user:{phone}")
+        user_store.ensure_user(token, phone)
+        kind = "phone"
+    elif email:
+        if not u.get("emailVerified"):
+            return {"status": "error", "detail": "Email не подтверждён в Google"}
+        token = _issue_token(f"google:{sub}")
+        user_store.ensure_user(token)
+        kind = "google"
+    else:
+        token = _issue_token(f"firebase:{sub}")
+        user_store.ensure_user(token)
+        kind = "firebase"
+
+    if name or email:
+        prof = user_store.get_profile(token) or {}
+        user_store.save_profile(token, {
+            "name": name or prof.get("name", ""),
+            "email": email or prof.get("email", ""),
+        })
+    print(f"[storefront] firebase login ({kind}): {sub} phone={phone} email={email}")
+    return {"status": "ok", "token": token,
+            "user": {"phone": phone if kind == "phone" else "", "name": name}}
+
+
+@router.get("/auth/yandex/login")
+async def storefront_yandex_login(redirect: str = "/"):
+    """Старт OAuth Яндекс ID: 302 на oauth.yandex.ru/authorize со state."""
+    if not settings.yandex_oauth_client_id:
+        return {"status": "error", "detail": "Вход через Яндекс ID не настроен"}
+    state = secrets.token_urlsafe(16)
+    _OAUTH_STATE[state] = {"ts": time.time(),
+                           "redirect": redirect if redirect.startswith("/") else "/"}
+    cb = f"https://ai.stroiapp.ru/api/storefront/auth/yandex/callback"
+    url = (
+        "https://oauth.yandex.ru/authorize"
+        f"?response_type=code&client_id={settings.yandex_oauth_client_id}"
+        f"&redirect_uri={quote(cb, safe='')}&state={state}&force_confirm=yes"
+    )
+    return RedirectResponse(url)
+
+
+@router.get("/auth/yandex/callback")
+async def storefront_yandex_callback(code: str = "", state: str = "", error: str = ""):
+    """Callback Яндекса: code → access_token → профиль → токен витрины → /login/#token=."""
+    front = settings.storefront_url.rstrip("/")
+
+    def fail(reason: str):
+        return RedirectResponse(f"{front}/login/#error={reason}")
+
+    if error or not code:
+        return fail("yandex")
+    rec = _OAUTH_STATE.pop(state, None)
+    if not rec or time.time() - rec["ts"] > _OAUTH_TTL:
+        return fail("state")
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            tr = await c.post(
+                "https://oauth.yandex.ru/token",
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "client_id": settings.yandex_oauth_client_id,
+                    "client_secret": settings.yandex_oauth_client_secret,
+                },
+            )
+            access = (tr.json() or {}).get("access_token")
+            if not access:
+                return fail("token")
+            ir = await c.get(
+                "https://login.yandex.ru/info",
+                params={"format": "json"},
+                headers={"Authorization": f"OAuth {access}"},
+            )
+            info = ir.json() if ir.status_code == 200 else {}
+    except Exception:
+        return fail("network")
+
+    yid = str(info.get("id") or info.get("login") or "")
+    if not yid:
+        return fail("profile")
+
+    phone = _normalize_phone((info.get("default_phone") or {}).get("number", ""))
+    name = (info.get("real_name")
+            or " ".join(x for x in (info.get("first_name"), info.get("last_name")) if x)
+            or info.get("display_name") or info.get("login") or "")
+    email = info.get("default_email") or (info.get("emails") or [""])[0]
+
+    # С телефоном токен совпадает с SMS-логином — профили сливаются в один.
+    token = _issue_token(f"user:{phone}" if len(phone) == 11 else f"yandex:{yid}")
+    user_store.ensure_user(token, phone if len(phone) == 11 else "")
+    if name or email:
+        prof = user_store.get_profile(token) or {}
+        user_store.save_profile(token, {
+            "name": name or prof.get("name", ""),
+            "email": email or prof.get("email", ""),
+        })
+    print(f"[storefront] yandex login: {yid} phone={'yes' if phone else 'no'}")
+    dest = rec.get("redirect") or "/"
+    return RedirectResponse(
+        f"{front}/login/#token={token}&name={quote(name)}&to={quote(dest)}"
+    )
+
+
+# ----- MAX: deep-link на бота → webhook подтверждает сессию → фронт поллит -----
+
+async def _max_send(chat_id, text: str) -> None:
+    """Ответ пользователю в MAX (chat_id диалога из Update)."""
+    if not (settings.max_bot_token and chat_id):
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            await c.post(
+                "https://platform-api2.max.ru/messages",
+                params={"chat_id": chat_id},
+                headers={"Authorization": settings.max_bot_token},
+                json={"text": text},
+            )
+    except Exception as exc:
+        print(f"[storefront] max send failed: {exc}")
+
+
+@router.post("/auth/max/start")
+async def storefront_max_start():
+    """Сессия входа через MAX: deep-link на бота + 6-значный код для ручного ввода."""
+    if not (settings.max_bot_token and settings.max_bot_username):
+        return {"status": "error", "detail": "Вход через MAX не настроен"}
+    now = time.time()
+    for k in [k for k, v in _MAX_SESSIONS.items() if now - v["ts"] > _MAX_SESS_TTL]:
+        _MAX_SESSIONS.pop(k, None)
+    sid = secrets.token_urlsafe(9)
+    _MAX_SESSIONS[sid] = {"ts": now, "status": "pending",
+                          "code": f"{secrets.randbelow(1000000):06d}"}
+    link = f"https://max.ru/{settings.max_bot_username}?start=login_{sid}"
+    return {"status": "ok", "session": sid,
+            "code": _MAX_SESSIONS[sid]["code"], "url": link}
+
+
+def _max_complete(sid: str, max_user: dict) -> bool:
+    sess = _MAX_SESSIONS.get(sid)
+    if not sess or sess["status"] == "ok":
+        return False
+    uid = str(max_user.get("user_id") or max_user.get("id") or "")
+    if not uid:
+        return False
+    token = _issue_token(f"max:{uid}")
+    name = str(max_user.get("name") or max_user.get("first_name") or "")[:255]
+    user_store.ensure_user(token)
+    if name:
+        prof = user_store.get_profile(token) or {}
+        if not prof.get("name"):
+            user_store.save_profile(token, {"name": name})
+    sess.update({"status": "ok", "token": token,
+                 "user": {"name": name, "provider": "max"}})
+    print(f"[storefront] MAX login: uid={uid} name={name!r}")
+    return True
+
+
+@router.get("/auth/max/status")
+async def storefront_max_status(session: str = ""):
+    sess = _MAX_SESSIONS.get(session)
+    if not sess or time.time() - sess["ts"] > _MAX_SESS_TTL:
+        return {"status": "error", "detail": "Сессия истекла — начните заново"}
+    if sess["status"] != "ok":
+        return {"status": "pending"}
+    return {"status": "ok", "token": sess["token"], "user": sess["user"]}
+
+
+@router.post("/auth/max/webhook")
+async def storefront_max_webhook(request: Request):
+    """Webhook MAX Bot API: bot_started по deep-link login_<sid> или текст с 6-зн. кодом.
+    Подписка: POST /auth/max/setup (нужен admin X-Auth-Token)."""
+    if settings.max_webhook_secret:
+        if request.headers.get("x-max-bot-api-secret") != settings.max_webhook_secret:
+            return {"status": "error", "detail": "forbidden"}
+    try:
+        upd = await request.json()
+    except Exception:
+        return {"status": "ok"}  # мусор — всё равно 200, иначе MAX будет ретраить
+    utype = upd.get("update_type")
+    if utype == "bot_started":
+        payload = str(upd.get("payload") or "")
+        if payload.startswith("login_") and _max_complete(payload[6:], upd.get("user") or {}):
+            chat_id = upd.get("chat_id")
+            if chat_id:
+                asyncio.create_task(_max_send(
+                    chat_id, "Вход на StroiApp подтверждён — вернитесь на сайт."))
+    elif utype == "message_created":
+        msg = upd.get("message") or {}
+        body = msg.get("body") or {}
+        text = str(body.get("text") or msg.get("text") or "")
+        m = re.search(r"\b(\d{6})\b", text)
+        if m:
+            for sid, s in list(_MAX_SESSIONS.items()):
+                if s.get("code") == m.group(1) and s["status"] == "pending":
+                    sender = msg.get("sender") or upd.get("user") or {}
+                    if _max_complete(sid, sender):
+                        chat_id = msg.get("chat_id") or (msg.get("recipient") or {}).get("chat_id")
+                        if chat_id:
+                            asyncio.create_task(_max_send(
+                                chat_id, "Вход на StroiApp подтверждён — вернитесь на сайт."))
+                    break
+    return {"status": "ok"}
+
+
+@router.post("/auth/max/setup")
+async def storefront_max_setup(request: Request):
+    """Регистрация webhook в MAX (одноразовая настройка, нужен admin X-Auth-Token)."""
+    from app.api.routes.auth import verify_token
+    if not verify_token(request.headers.get("x-auth-token", "")):
+        return {"status": "error", "detail": "unauthorized"}
+    if not settings.max_bot_token:
+        return {"status": "error", "detail": "нет MAX_BOT_TOKEN"}
+    url = "https://ai.stroiapp.ru/api/storefront/auth/max/webhook"
+    payload = {
+        "url": url,
+        "update_types": ["bot_started", "message_created"],
+    }
+    if settings.max_webhook_secret:
+        payload["secret"] = settings.max_webhook_secret
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://platform-api2.max.ru/subscriptions",
+                headers={"Authorization": settings.max_bot_token},
+                json=payload,
+            )
+        try:
+            body = r.json()
+        except Exception:
+            body = {"http": r.status_code, "text": r.text[:300]}
+        return {"status": "ok", "webhook_url": url, "max_response": body}
+    except Exception as exc:
+        return {"status": "error", "detail": str(exc)}
 
 
 # ---------- Списки покупателя витрины (избранное/сравнение) ----------
