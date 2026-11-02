@@ -19,12 +19,18 @@ class DeepSeekClient:
         self.base_url = "https://api.deepseek.com/v1"
         self.client = httpx.AsyncClient(timeout=300.0)
 
-    async def chat(self, prompt: str, model: str = "deepseek-chat", max_tokens: int = 4096, temperature: float = 0.7, system: str = "") -> str:
+    async def chat(self, prompt: str, model: str = "deepseek-chat", max_tokens: int = 4096, temperature: float = 0.7, system: str = "", history: list | None = None) -> str:
         if not self.api_key:
             return ""
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
+        # Память диалога: прошлые ходы вставляем между system и текущим user
+        for m in (history or []):
+            role = m.get("role")
+            content = str(m.get("content") or "")[:1200]
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
         messages.append({"role": "user", "content": prompt})
         payload = {
             "model": model,
@@ -136,6 +142,247 @@ class DeepSeekClient:
                 "meta_title": product_name[:70],
                 "meta_description": f"Статья о {product_name} — купить в StroiApp.ru"[:160],
             }
+
+    async def generate_category_seo(self, category_name: str, children_names: list[str] = None,
+                                    sample_products: list[str] = None) -> dict:
+        """SEO-пакет для страницы категории витрины: meta_title, meta_description,
+        seo_text (HTML для низа страницы), faq (вопросы/ответы для FAQPage schema)."""
+        children = ", ".join((children_names or [])[:10]) or "нет"
+        products = ", ".join((sample_products or [])[:15]) or "нет"
+        system = (
+            "Ты — SEO-копирайтер строительного маркетплейса moscow.stroiapp.ru (Москва и МО). "
+            "Пишешь полезные тексты для страниц категорий интернет-магазина стройматериалов. "
+            "B2B+B2C: наличные и безнал с НДС, доставка по Москве и области своим автопарком "
+            "(Газель/Пятитонник/Манипулятор до 10т), отгрузка со склада в день заказа. "
+            "Пиши по делу, без воды и рекламных клише типа 'широкий ассортимент'."
+        )
+        prompt = (
+            f"Категория каталога: «{category_name}».\n"
+            f"Подкатегории: {children}.\n"
+            f"Примеры товаров в категории: {products}.\n\n"
+            f"Сделай SEO-пакет для страницы этой категории. Ответь СТРОГО валидным JSON без markdown:\n"
+            f'{{"meta_title": "до 70 символов, формат «{category_name} — купить в Москве ...»", '
+            f'"meta_description": "150-160 символов, с ценностью: опт/розница, НДС, доставка", '
+            f'"seo_text": "HTML-текст 1200-1800 знаков: 2-3 абзаца <p> + список <ul><li>. '
+            f'О чём писать: что входит в категорию, как выбрать (по каким параметрам), '
+            f'типичные применения на объектах, как мы продаём (опт/розница, НДС, доставка по Москве и МО). '
+            f'Не дублируй название категории в первом предложении. Только <p>, <ul>, <li>, <strong>.", '
+            f'"faq": [{{"q": "вопрос покупателя", "a": "короткий конкретный ответ"}}, ... — 4 штуки: '
+            f'про оплату безналом с НДС, сроки доставки по Москве/МО, минимальный заказ/опт, '
+            f'что делать если нужного товара нет на сайте]}}'
+        )
+        import json as _json
+        import re as _re
+        try:
+            raw = await self.chat(prompt, max_tokens=2048, temperature=0.7, system=system)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+            match = _re.search(r"\{.*\}", raw, _re.DOTALL)
+            data = _json.loads(match.group(0) if match else raw)
+            if isinstance(data.get("faq"), list):
+                data["faq"] = [
+                    {"q": str(f.get("q", "")), "a": str(f.get("a", ""))}
+                    for f in data["faq"][:6] if isinstance(f, dict) and f.get("q") and f.get("a")
+                ]
+            else:
+                data["faq"] = []
+            return data
+        except Exception:
+            return {
+                "meta_title": f"{category_name} — купить в Москве | StroiApp"[:70],
+                "meta_description": (
+                    f"{category_name} с доставкой по Москве и МО: опт и розница, "
+                    f"безнал с НДС, отгрузка со склада в день заказа."
+                )[:160],
+                "seo_text": "",
+                "faq": [],
+            }
+
+    async def generate_product_seo(self, product_name: str, category_name: str = "",
+                                   product_info: str = "") -> dict:
+        """SEO-пакет для карточки товара витрины: meta_title, meta_description,
+        seo_text (HTML-блок внизу страницы), faq (вопросы/ответы для FAQPage schema)."""
+        system = (
+            "Ты — SEO-копирайтер строительного маркетплейса moscow.stroiapp.ru (Москва и МО). "
+            "Пишешь полезные тексты для карточек товаров интернет-магазина стройматериалов. "
+            "B2B+B2C: наличные и безнал с НДС, доставка по Москве и области своим автопарком "
+            "(Газель/Пятитонник/Манипулятор до 10т), отгрузка со склада в день заказа. "
+            "Пиши по делу, без воды и рекламных клише типа 'широкий ассортимент'."
+        )
+        prompt = (
+            f"Товар: «{product_name}».\n"
+            f"Категория: {category_name or 'нет'}.\n"
+            f"Данные карточки:\n{product_info or 'нет'}\n\n"
+            f"Сделай SEO-пакет для страницы этого товара. Ответь СТРОГО валидным JSON без markdown:\n"
+            f'{{"meta_title": "до 70 символов, формат «{product_name} — купить ... в Москве | StroiApp»", '
+            f'"meta_description": "150-160 символов: ключевое свойство товара, цена/опт, НДС, доставка по Москве", '
+            f'"seo_text": "HTML-текст 900-1400 знаков: 2-3 абзаца <p> + список <ul><li>. '
+            f'О чём писать: что это за товар и для каких работ, как выбрать фасовку/марку/объём, '
+            f'расход или нормы применения, типичные ошибки при покупке, '
+            f'как продаём (опт/розница, безнал с НДС, доставка по Москве и МО, самовывоз). '
+            f'Не начинай первое предложение с названия товара. Только <p>, <ul>, <li>, <strong>.", '
+            f'"faq": [{{"q": "вопрос покупателя", "a": "короткий конкретный ответ"}}, ... — 3 штуки: '
+            f'про доставку/сроки по Москве и МО, про безнал с НДС для юрлиц, '
+            f'про расход/совместимость или что делать если нужен другой объём]}}'
+        )
+        import json as _json
+        import re as _re
+        try:
+            raw = await self.chat(prompt, max_tokens=1600, temperature=0.7, system=system)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+            match = _re.search(r"\{.*\}", raw, _re.DOTALL)
+            data = _json.loads(match.group(0) if match else raw)
+            if isinstance(data.get("faq"), list):
+                data["faq"] = [
+                    {"q": str(f.get("q", "")), "a": str(f.get("a", ""))}
+                    for f in data["faq"][:5] if isinstance(f, dict) and f.get("q") and f.get("a")
+                ]
+            else:
+                data["faq"] = []
+            return data
+        except Exception:
+            return {
+                "meta_title": f"{product_name} — купить в Москве | StroiApp"[:70],
+                "meta_description": (
+                    f"{product_name}: купить с доставкой по Москве и МО. "
+                    f"Опт и розница, безнал с НДС, отгрузка со склада в день заказа."
+                )[:160],
+                "seo_text": "",
+                "faq": [],
+            }
+
+    async def generate_oc_seo(self, name: str, kind: str = "product",
+                              info: str = "") -> dict:
+        """SEO-пакет для родительского OpenCart stroiapp.ru (оптовый поставщик).
+        Угол — B2B/опт/НДС/объекты, чтобы тексты НЕ дублировали moscow.stroiapp.ru.
+        kind: 'product' | 'category'. Возвращает поля oc_*_description."""
+        thing = "товара" if kind == "product" else "категории товаров"
+        system = (
+            "Ты — SEO-копирайтер оптового поставщика стройматериалов stroiapp.ru "
+            "(Москва и Московская область). Позиционирование: база поставок для "
+            "строительных компаний, прорабов, тендерных отделов и юрлиц. "
+            "Безналичный расчёт с НДС, отгрузка со склада, поставка партиями на объекты, "
+            "сертификаты и паспорта качества. Пиши деловым тоном про опт, объёмы, "
+            "сроки поставки и документацию — БЕЗ розничных формулировок и без "
+            "упоминания розничных цен в витринном стиле."
+        )
+        prompt = (
+            f"Сделай SEO-пакет для страницы {thing} «{name}» оптового поставщика stroiapp.ru.\n"
+            f"Данные: {info or 'нет'}\n\n"
+            f"Ответь СТРОГО валидным JSON без markdown:\n"
+            f'{{"description": "HTML 800-1200 знаков: 2 абзаца <p> + список <ul><li>. '
+            f'Пиши: что это и для каких работ, фасовки/марки/объёмы партий, '
+            f'условия поставки юрлицам (безнал с НДС, накладные, сертификаты), '
+            f'доставка на объекты по Москве и МО. Только <p>, <ul>, <li>, <strong>. '
+            f'Не начинай первое предложение с названия.", '
+            f'"meta_title": "до 65 символов, формат «{name} оптом в Москве | Stroiapp.ru»", '
+            f'"meta_description": "140-160 символов: назначение, опт, НДС, поставка на объект", '
+            f'"meta_keyword": "5-7 ключевых фраз через запятую с акцентом на опт/Москва"}}'
+        )
+        import json as _json
+        import re as _re
+        try:
+            raw = await self.chat(prompt, max_tokens=1400, temperature=0.7, system=system)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+            match = _re.search(r"\{.*\}", raw, _re.DOTALL)
+            data = _json.loads(match.group(0) if match else raw)
+            return {
+                "description": str(data.get("description", "")),
+                "meta_title": str(data.get("meta_title") or name)[:250],
+                "meta_description": str(data.get("meta_description", ""))[:250],
+                "meta_keyword": str(data.get("meta_keyword", ""))[:250],
+            }
+        except Exception:
+            return {
+                "description": "",
+                "meta_title": f"{name} оптом в Москве | Stroiapp.ru"[:65],
+                "meta_description": (
+                    f"{name}: оптовые поставки для юрлиц по Москве и МО, "
+                    f"безнал с НДС, отгрузка со склада на объект."
+                )[:160],
+                "meta_keyword": "",
+            }
+
+    async def generate_product_attributes(self, product_name: str, category_name: str = "",
+                                          existing: list[dict] | None = None) -> list[dict]:
+        """Полный набор технических характеристик товара (как у famarket/Петрович):
+        12-20 атрибутов [{name, text}] — расход, толщина слоя, время твердения,
+        адгезия, температура применения и т.п. Значения с единицами измерения.
+        Уже существующие атрибуты передаются модели — она их сохраняет и дополняет."""
+        if not self.api_key:
+            return []
+        existing_txt = "; ".join(
+            f"{a.get('name')}: {a.get('text')}" for a in (existing or []) if a.get("name")
+        ) or "нет"
+        system = (
+            "Ты — специалист по строительным материалам, заполняешь карточку товара "
+            "интернет-магазина. Знаешь техпараметры популярных брендов РФ (Knauf, Волма, "
+            "Эталон, Ceresit, Weber, Litokol, Основит, Perfekta и др.). "
+            "Отвечаешь СТРОГО валидным JSON, без markdown и пояснений."
+        )
+        prompt = (
+            f"Товар: «{product_name}».\n"
+            f"Категория: {category_name or 'нет'}.\n"
+            f"Уже известные характеристики (сохранить как есть, не дублировать по имени): {existing_txt}\n\n"
+            f"Составь полный список технических характеристик товара — 12-20 штук, "
+            f"как на хороших строительных маркетах (famarket.ru, Петрович). "
+            f"Для смесей типичные параметры: Бренд, Тип, Назначение, Состав/основа, "
+            f"Толщина слоя (мм), Расход (кг/м² на 1 мм или на мешок), Расход воды (л/кг), "
+            f"Жизнеспособность раствора (мин), Время твердения/высыхания (ч), "
+            f"Адгезия (МПа), Прочность на сжатие (МПа), Морозостойкость (циклы), "
+            f"Температура применения (°C), Температура эксплуатации, Цвет, Фактура, "
+            f"Фасовка/упаковка, Вес (кг), Срок хранения (мес). "
+            f"Для других товаров — релевантные параметры этого типа изделия.\n"
+            f"Правила:\n"
+            f"- Числовые параметры давай с единицами («7-50», «0,9 кг/м² при 1 мм», «80»), "
+            f"единицы в самом значении, не в имени\n"
+            f"- Бренд, модель, фасовку бери из названия товара и известных характеристик\n"
+            f"- Если точное значение производителя не знаешь — давай типичное для этого класса продукта\n"
+            f"- Никаких маркетинговых текстов, только «Имя: значение»\n"
+            f"- Порядок: сначала общие (Бренд, Тип, Назначение), затем техпараметры, в конце упаковка/хранение\n\n"
+            f"Ответь СТРОГО JSON-массивом: "
+            f'[{{"name": "Толщина слоя", "text": "7-50 мм"}}, ...]'
+        )
+        import json as _json
+        import re as _re
+        try:
+            raw = await self.chat(prompt, max_tokens=1800, temperature=0.3, system=system)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+            match = _re.search(r"\[.*\]", raw, _re.DOTALL)
+            data = _json.loads(match.group(0) if match else raw)
+            out = []
+            seen = set()
+            for a in data if isinstance(data, list) else []:
+                if not isinstance(a, dict):
+                    continue
+                name = str(a.get("name") or "").strip()
+                text = str(a.get("text") or "").strip()
+                if not name or not text or name.lower() in seen:
+                    continue
+                seen.add(name.lower())
+                out.append({"name": name[:60], "text": text[:250]})
+            return out[:25]
+        except Exception:
+            return []
 
     async def generate_kp(self, competitor_name: str, issues: list[str]) -> str:
         system = "Ты — менеджер по продажам строительных материалов."

@@ -177,15 +177,34 @@ def storefront_products(limit: int = Query(48, ge=1, le=100),
     if category_id is not None:
         items = [p for p in items if p.category_id == category_id or category_id in (p.category_ids or [])]
     if search:
-        q = search.lower()
+        q = search.lower().strip()
+        words = [w for w in re.split(r"\s+", q) if w]
 
-        def _hit(p) -> bool:
-            if q in (p.name or "").lower() or q in (p.sku or "").lower() or q in (p.model or "").lower():
-                return True
+        def _score(p) -> int:
+            name = (p.name or "").lower()
+            ident = (p.sku or "").lower() + " " + (p.model or "").lower()
             # бренд и прочие характеристики лежат в атрибутах [{name, text}]
-            return any(q in str(a.get("text", "")).lower() for a in (p.attributes or []))
+            attr = " ".join(str(a.get("text", "")).lower() for a in (p.attributes or []))
+            s = 0
+            if q in name:
+                s += 100
+            if q in ident:
+                s += 40
+            if q in attr:
+                s += 8
+            for w in words:
+                if w == q:
+                    continue
+                if w in name:
+                    s += 20
+                elif w in ident:
+                    s += 5
+                elif w in attr:
+                    s += 2
+            return s
 
-        items = [p for p in items if _hit(p)]
+        items = [p for p, s in sorted(
+            ((p, _score(p)) for p in items), key=lambda t: t[1], reverse=True) if s > 0]
     out = [_public(p) for p in items if p.name and p.retail_price > 0]
     page = out[max(offset, 0):max(offset, 0) + limit]
     return {"status": "ok", "count": len(page), "total": len(out), "products": page}
@@ -405,25 +424,51 @@ class CalcRequest(BaseModel):
     thickness: float = 0
     comment: str = ""
     query: str = ""  # свободный текст из умной строки ИИ-калькулятора
+    history: list[dict] = []  # прошлые ходы диалога [{role, content}] — память AI StroiApp
 
 
 _CALC_SYSTEM = (
-    "Ты — ИИ-калькулятор маркетплейса StroiApp. Твоя задача — рассчитать материалы "
-    "по формулам расхода и предложить товары.\n"
+    "Ты — AI StroiApp, умный помощник строительного маркетплейса StroiApp. "
+    "Ты эксперт по стройматериалам: сухие смеси, гипсокартон, утеплители, крепёж, "
+    "инструмент — знаешь расходы, толщины слоёв, совместимость и порядок работ.\n"
+    "СТИЛЬ: отвечай как живой консультант в магазине — дружелюбно, по делу, без "
+    "канцелярита, на «вы». Помни весь диалог: если клиент уточняет («а дешевле?», "
+    "«а на гипсокартон?», «посчитай ещё грунтовку») — используй параметры из прошлых "
+    "сообщений и пересчитывай только изменившееся. Если данных мало — предположи "
+    "типичные значения и оговори предположение в summary, либо задай один короткий "
+    "уточняющий вопрос.\n"
     "КРИТИЧЕСКОЕ ТРЕБОВАНИЕ: тебе передан динамический список из нашей админки "
-    "«Товары на сайте». Ты имеешь право рекомендовать и выводить ТОЛЬКО те товары, "
-    "которые есть в этом списке прямо сейчас (названия, артикулы, цены берёшь строго "
-    "оттуда). Если товар удалён из этого раздела админки или его нет в наличии — ты ни "
-    "в коем случае не должен его выдумывать и предлагать. Если позиция только что "
-    "добавлена — сразу используй её в расчётах.\n"
+    "«Товары на сайте» (sku, name, price, stock, attrs — ключевые характеристики: "
+    "фасовка, расход, толщина слоя). Рекомендуй ТОЛЬКО товары из этого списка — "
+    "названия, артикулы и цены берёшь посимвольно оттуда. Если товара нет в списке — "
+    "ни в коем случае не выдумывай и не предлагай. Расход и фасовку бери из attrs "
+    "товара; если их нет — используй типичные значения класса продукта и скажи об этом.\n"
     "Отвечай СТРОГО валидным JSON без markdown:\n"
-    '{"summary": "краткий текстовый расчёт для клиента (2-4 предложения, по-русски)", '
+    '{"summary": "твой ответ клиенту (2-4 предложения, по-русски, можно с формулой расчёта)", '
     '"items": [{"sku": "артикул товара ИЗ СПИСКА", "qty": число, "unit": "шт|мешков|кг|л|м2", '
     '"note": "зачем нужен, 3-8 слов"}]}\n'
     "Правила: qty — целое число упаковок/единиц с округлением вверх; выбирай 2-6 самых "
-    "подходящих товаров; sku копируй из списка посимвольно; если подходящих товаров нет — "
-    'верни {"summary": "объяснение", "items": []}.'
+    "подходящих товаров; sku копируй из списка посимвольно; если вопрос — уточнение "
+    "или совет без подбора — отвечай в summary и оставь items пустым; если подходящих "
+    'товаров нет — верни {"summary": "объяснение", "items": []}.'
 )
+
+
+# Атрибуты, по которым ИИ реально считает: расход/фасовка/слой/вес
+_CALC_KEY_ATTRS = ("расход", "фасовка", "толщина", "слой", "вес")
+
+
+def _calc_attrs(p) -> str:
+    """Короткая выжимка характеристик товара для контекста ИИ (до 3 параметров)."""
+    out = []
+    for a in (p.attributes or []):
+        n = str(a.get("name") or "").lower()
+        t = str(a.get("text") or "").strip()
+        if t and any(k in n for k in _CALC_KEY_ATTRS):
+            out.append(f"{a.get('name')}: {t}")
+        if len(out) >= 3:
+            break
+    return "; ".join(out)
 
 
 @router.post("/ai-calc")
@@ -438,7 +483,7 @@ async def storefront_ai_calc(req: CalcRequest):
     if not items:
         return {"status": "error", "detail": "catalog empty"}
 
-    # Компактный JSON-lines каталог для контекста DeepSeek
+    # Компактный JSON-lines каталог для контекста DeepSeek (+ ключевые характеристики)
     catalog = "\n".join(
         json.dumps(
             {
@@ -446,6 +491,7 @@ async def storefront_ai_calc(req: CalcRequest):
                 "name": p.name,
                 "price": p.retail_price,
                 "stock": "в наличии" if (p.quantity or 0) > 0 else "под заказ",
+                **({"attrs": a} if (a := _calc_attrs(p)) else {}),
             },
             ensure_ascii=False,
         )
@@ -465,11 +511,17 @@ async def storefront_ai_calc(req: CalcRequest):
            "площадь, толщину и прочие параметры; если площадь не названа — предположи "
            "типичную и оговори предположение в summary.\n" if q else "")
         + "\nАктуальный список товаров из админки «Товары на сайте» "
-        "(JSON-строки: sku, name, price в рублях, stock):\n"
+        "(JSON-строки: sku, name, price в рублях, stock, attrs):\n"
         + catalog
     )
 
-    raw = await deepseek_client.chat(user, max_tokens=1500, temperature=0.3, system=_CALC_SYSTEM)
+    # Память диалога: последние 8 ходов передаём модели как messages
+    hist = [
+        {"role": m.get("role"), "content": str(m.get("content") or "")[:900]}
+        for m in (req.history or [])[-8:]
+        if m.get("role") in ("user", "assistant") and str(m.get("content") or "").strip()
+    ]
+    raw = await deepseek_client.chat(user, max_tokens=1500, temperature=0.3, system=_CALC_SYSTEM, history=hist)
     if not raw or raw.startswith("[DeepSeek error"):
         return {"status": "error", "detail": raw or "deepseek unavailable"}
 
