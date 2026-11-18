@@ -2,7 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import {
-  AlertCircle, Award, BarChart3, Box, Building, Calculator, CheckCircle, Clipboard, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
+  AlertCircle, Award, BarChart3, Box, Building, Calculator, Camera, CheckCircle, Clipboard, Clock, Download, Eye, FileCheck, FileUp, Globe, LayoutDashboard,
   FileText, Folder, Image, MapPin, MessageSquare, MonitorCheck, Package, PenTool, Plus, Rocket, Save, Search, Send, Settings, ShieldCheck, ShoppingCart, Sparkles, Star, Tag, Users,
   RefreshCw, ShoppingBag, Target, TrendingUp, Truck, Upload, Wand2, X, Zap, Menu, LogOut
 } from "lucide-react";
@@ -121,6 +121,7 @@ function App() {
   const [allProductsTotal, setAllProductsTotal] = React.useState(0);
   const [allProductsCat, setAllProductsCat] = React.useState({ cat0: "", cat1: "", cat2: "" });
   const [allProductsSource, setAllProductsSource] = React.useState("");
+  const [fmShowPushed, setFmShowPushed] = React.useState(false);
   const [importCatTree, setImportCatTree] = React.useState([]);
   const [importCatOpen, setImportCatOpen] = React.useState({});
   const [pushingId, setPushingId] = React.useState(null);
@@ -162,6 +163,19 @@ function App() {
   const [discoverLoading, setDiscoverLoading] = React.useState(false);
   const [bidsAnalysis, setBidsAnalysis] = React.useState(null);
   const [bidsLoading, setBidsLoading] = React.useState(false);
+  const [auctionData, setAuctionData] = React.useState(null);
+  const [auctionLoading, setAuctionLoading] = React.useState(false);
+  const [holdLoading, setHoldLoading] = React.useState(false);
+  const [directCampaigns, setDirectCampaigns] = React.useState([]);
+  const [auctionCampaignId, setAuctionCampaignId] = React.useState("");
+  const [adProducts, setAdProducts] = React.useState([]);
+  const [adProductsLoading, setAdProductsLoading] = React.useState(false);
+  const [adSelected, setAdSelected] = React.useState({});
+  const [adCats, setAdCats] = React.useState([]);
+  const [adOpenCats, setAdOpenCats] = React.useState({});
+  const [adQuery, setAdQuery] = React.useState("");
+  const [adSaving, setAdSaving] = React.useState(false);
+  const [adPanelOpen, setAdPanelOpen] = React.useState(false);
   const [selectedCity, setSelectedCity] = React.useState(null);
   const [geoCities, setGeoCities] = React.useState([]);
   const [geoRegions, setGeoRegions] = React.useState([]);
@@ -291,12 +305,19 @@ function App() {
     loadImportCatTree();
     const t = setTimeout(() => { loadAllProducts(allProductsPage, allProductsQuery); }, 300);
     return () => clearTimeout(t);
-  }, [tab, allProductsPage, allProductsQuery, allProductsSource]);
+  }, [tab, allProductsPage, allProductsQuery, allProductsSource, fmShowPushed]);
 
   React.useEffect(() => {
     if (tab === 'sync') {
       checkSyncStatus();
     }
+  }, [tab]);
+
+  React.useEffect(() => {
+    if (tab !== 'competitors-bids') return;
+    loadAuctionStatus();
+    loadDirectCampaigns();
+    loadAdProducts();
   }, [tab]);
 
   React.useEffect(() => {
@@ -720,6 +741,7 @@ function App() {
       if (cat.cat1) params.set("cat1", cat.cat1);
       if (cat.cat2) params.set("cat2", cat.cat2);
       if (allProductsSource) params.set("source", allProductsSource);
+      if (allProductsSource === "fm" && !fmShowPushed) params.set("pushed", "0");
       const data = await apiGet(`/import/products?${params.toString()}`);
       setAllProducts(data.products || []);
       setAllProductsTotal(data.total || 0);
@@ -765,8 +787,10 @@ function App() {
     try {
       const res = await apiPost(`/import/products/${id}/push`, {});
       if (res && res.status === "ok") {
-        addToast("Товар добавлен на сайт", "success");
-        setAllProducts((items) => items.map((p) => (p.id === id ? { ...p, pushed: 1, product_id: res.product_id } : p)));
+        const warns = Array.isArray(res.warnings) ? res.warnings.filter(Boolean) : [];
+        addToast(warns.length ? `Товар #${res.product_id} добавлен, но: ${warns.join("; ")}` : "Товар добавлен на сайт", warns.length ? "info" : "success");
+        setAllProducts((items) => items.map((p) => (p.id === id ? { ...p, pushed: 1, product_id: res.product_id, image: res.image || p.image } : p)));
+        setSelImportProduct((p) => (p && p.id === id ? { ...p, pushed: 1, product_id: res.product_id, image: res.image || p.image } : p));
       } else {
         addToast("Ошибка добавления: " + ((res && res.detail) || "неизвестно"), "error");
       }
@@ -1033,11 +1057,117 @@ function App() {
     }
   }
 
+  async function loadAdProducts() {
+    setAdProductsLoading(true);
+    try {
+      const [data, cats] = await Promise.all([
+        apiGet("/competitors-bids/auction-products"),
+        apiGet("/storefront/categories"),
+      ]);
+      const products = data.products || [];
+      setAdProducts(products);
+      const sel = {};
+      for (const p of products) if (p.selected) sel[p.sku] = true;
+      setAdSelected(sel);
+      if (cats?.categories) setAdCats(cats.categories);
+    } catch (err) {
+      console.warn("auction-products:", err.message);
+      addToast("Не удалось загрузить товары: " + err.message, "error");
+    } finally {
+      setAdProductsLoading(false);
+    }
+  }
+
+  function toggleAdProduct(sku) {
+    setAdSelected((prev) => {
+      const next = { ...prev };
+      if (next[sku]) delete next[sku]; else next[sku] = true;
+      return next;
+    });
+  }
+
+  function setCategorySelection(catId, products, on) {
+    setAdSelected((prev) => {
+      const next = { ...prev };
+      for (const p of products) {
+        if (on) next[p.sku] = true; else delete next[p.sku];
+      }
+      return next;
+    });
+  }
+
+  function selectTopMargin(n = 50) {
+    const sorted = [...adProducts].sort((a, b) => (b.margin || 0) - (a.margin || 0));
+    const sel = {};
+    for (const p of sorted.slice(0, n)) sel[p.sku] = true;
+    setAdSelected(sel);
+  }
+
+  async function saveAdSelection() {
+    setAdSaving(true);
+    try {
+      const skus = Object.keys(adSelected).filter((k) => adSelected[k]);
+      const data = await apiPost("/competitors-bids/auction-products", { skus });
+      addToast(`Сохранено: ${data.selected_count} товаров в рекламе`, "success");
+      loadAuctionStatus();
+    } catch (err) {
+      addToast("Ошибка сохранения: " + err.message, "error");
+    } finally {
+      setAdSaving(false);
+    }
+  }
+
+  const adSelectedCount = Object.values(adSelected).filter(Boolean).length;
+
+  const adGrouped = React.useMemo(() => {
+    const q = adQuery.trim().toLowerCase();
+    const filtered = q
+      ? adProducts.filter((p) => p.name.toLowerCase().includes(q) || String(p.sku).includes(q))
+      : adProducts;
+    const byCat = new Map();
+    for (const p of filtered) {
+      const cid = p.category_id || 0;
+      if (!byCat.has(cid)) byCat.set(cid, []);
+      byCat.get(cid).push(p);
+    }
+    const catName = {};
+    const catOrder = [];
+    const flat = (list, depth) => {
+      for (const c of list || []) {
+        catName[c.category_id] = c.name;
+        flat(c.children, depth + 1);
+      }
+    };
+    flat(adCats, 0);
+    const groups = [...byCat.entries()].map(([cid, prods]) => ({
+      cid,
+      name: catName[cid] || (cid ? `Категория ${cid}` : "Без категории"),
+      products: prods,
+      selectedCount: prods.filter((p) => adSelected[p.sku]).length,
+    }));
+    groups.sort((a, b) => b.products.length - a.products.length);
+    return groups;
+  }, [adProducts, adCats, adQuery, adSelected]);
+
   async function runAuctionScan() {
     setAuctionLoading(true);
     try {
       const data = await apiPost("/competitors-bids/auction-scan", {});
-      if (data.status === "no_token" || data.status === "error") {
+      if (data.status === "running") {
+        addToast(data.message || "Скан запущен (~2–3 мин)", "success");
+        // поллим статус до завершения (макс ~5 мин)
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 5000));
+          const st = await apiGet("/competitors-bids/auction-status").catch(() => null);
+          if (!st) continue;
+          setAuctionData(st);
+          if (st.target_campaign_id) setAuctionCampaignId(String(st.target_campaign_id));
+          if (!st.scan_running) {
+            addToast(`Скан готов: данных по аукциону ${st.last_scan?.keywords_with_data || 0}/${st.last_scan?.keywords_total || 0}`, "success");
+            break;
+          }
+        }
+      } else if (data.status === "no_token" || data.status === "error") {
         addToast(data.message || "Ошибка сканирования", "warning");
       } else {
         addToast(`Аукцион: ${data.with_auction_data}/${data.keywords} ключей с данными`, "success");
@@ -1829,7 +1959,7 @@ function App() {
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-lg font-bold">{allProductsSource === "fm" ? "Товары от ФМ" : "Все товары"}</h2>
-                      <p className="text-sm text-slate-400">База импортированных товаров — {allProductsLoaded ? `${allProductsTotal} шт.` : "не загружено"}{allProductsCat.cat0 ? ` · ${[allProductsCat.cat0, allProductsCat.cat1, allProductsCat.cat2].filter(Boolean).join(" › ")}` : ""}. Нажми «+», чтобы добавить товар на сайт.</p>
+                      <p className="text-sm text-slate-400">База импортированных товаров — {allProductsLoaded ? `${allProductsTotal} шт.` : "не загружено"}{allProductsCat.cat0 ? ` · ${[allProductsCat.cat0, allProductsCat.cat1, allProductsCat.cat2].filter(Boolean).join(" › ")}` : ""}. «+» переносит на сайт фото (без надписей/водяных знаков), характеристики и описание от DeepSeek — дальше товар в разделе «Товары на сайте».</p>
                     </div>
                     <button onClick={() => loadAllProducts(page, allProductsQuery)} disabled={allProductsLoading} className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-50">
                       {allProductsLoading ? "Загрузка..." : "Обновить"}
@@ -1849,6 +1979,12 @@ function App() {
                       Товары от ФМ
                     </button>
                   </div>
+                  {allProductsSource === "fm" && (
+                    <label className="mb-4 -mt-2 flex w-fit cursor-pointer items-center gap-2 text-sm text-slate-400">
+                      <input type="checkbox" checked={fmShowPushed} onChange={(e) => { setFmShowPushed(e.target.checked); setAllProductsPage(1); }} className="h-4 w-4 accent-emerald-500" />
+                      Показать уже добавленные на сайт
+                    </label>
+                  )}
                   <input value={allProductsQuery} onChange={(e) => { setAllProductsQuery(e.target.value); setAllProductsPage(1); }} placeholder="Поиск по названию, SKU, xml_id..." className="mb-4 w-full rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-emerald-500" />
                   {allProductsLoading && !allProductsLoaded ? (
                     <div className="py-10 text-center text-slate-500">Загружаю товары...</div>
@@ -1860,7 +1996,7 @@ function App() {
                           <tbody>
                             {allProducts.map((p) => (
                               <tr key={p.id} onClick={() => openImportProduct(p.id)} className="cursor-pointer border-t border-slate-800/50 hover:bg-slate-800/30">
-                                <td className="py-2 pr-2">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : p.image && String(p.image).startsWith('fmimg/') ? <img src={"/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}</td>
+                                <td className="py-2 pr-2"><div className="relative w-fit">{p.image && String(p.image).startsWith('catalog/') ? <img src={"https://stroiapp.ru/image/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : p.image && String(p.image).startsWith('fmimg/') ? <img src={"/" + p.image} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" /> : <div className="flex h-10 w-10 items-center justify-center rounded bg-slate-800 text-slate-600" title={p.image_path || ""}><Package size={16} /></div>}{p.image_flag ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-amber-400 ring-2 ring-slate-900" title={p.image_flag === 'watermark' ? 'На фото надпись/водяной знак — не перенесено' : p.image_flag === 'no_image' ? 'Нет фото' : p.image_flag === 'upload_failed' ? 'Фото не загрузилось' : 'На фото возможна надпись — проверь'} /> : null}</div></td>
                                 <td className="py-2 pr-2"><div className="max-w-md truncate font-medium" title={p.name}>{p.name || "Без названия"}</div><div className="text-xs text-slate-500">xml_id: {p.xml_id}{p.prop_type ? ` · ${p.prop_type}` : ""}</div></td>
                                 <td className="py-2 pr-2 text-xs text-slate-400"><div className="max-w-[220px] truncate" title={catPath(p)}>{catPath(p) || "—"}</div></td>
                                 <td className="py-2 pr-2 text-right font-medium">{money(Number(p.price || 0))}</td>
@@ -1923,9 +2059,14 @@ function App() {
                               ) : (
                                 <div className="flex aspect-square w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-slate-600"><Package size={48} /></div>
                               )}
+                              {p.image_flag ? (
+                                <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+                                  {p.image_flag === 'watermark' ? 'Водяной знак/ссылка на сайт — фото не перенесено' : p.image_flag === 'text_overlay' ? 'На фото наложены надписи/баннер — не перенесено, нужно чистое фото' : p.image_flag === 'no_image' ? 'Фото отсутствует — на сайт попадёт без картинки' : p.image_flag === 'upload_failed' ? 'Фото не загрузилось на сайт' : 'На фото возможна надпись у края — проверь после переноса'}
+                                </div>
+                              ) : null}
                               <div className="mt-4 rounded-xl bg-slate-800/60 p-4">
                                 <div className="text-2xl font-bold text-emerald-400">{money(Number(p.price || 0))}</div>
-                                <div className="mt-1 text-xs text-slate-400">цена из выгрузки</div>
+                                <div className="mt-1 text-xs text-slate-400">цена из выгрузки — переносится как есть, поправим на сайте</div>
                               </div>
                               {p.pushed ? (
                                 <div className="mt-3 flex items-center justify-center gap-1 rounded-lg bg-emerald-500/15 px-3 py-2 text-sm text-emerald-400"><CheckCircle size={15} /> На сайте #{p.product_id}</div>
@@ -2540,15 +2681,15 @@ function App() {
                     )}
                   </div>
                   <p className="mb-3 text-xs text-slate-400">
-                    Система берёт маржинальные товары → генерирует ключи → снимает <b>живые аукционные ставки</b> Директа (кампания-зонд, не тратит бюджет) → считает ставку «топ+1₽» с потолком от маржи → может держать позицию #1 автоматически каждые 4 часа.
+                    Система берёт <b>все товары каталога</b> → генерирует ключи → снимает <b>живые аукционные ставки</b> Директа (кампания-зонд, не тратит бюджет) → считает ставку «топ+1₽» с потолком от маржи → добавляет недостающие ключи в боевую кампанию и держит позицию #1 (можно автоматически каждые 4 часа).
                   </p>
                   <div className="mb-3 flex flex-wrap items-center gap-2">
                     <button
                       onClick={runAuctionScan}
-                      disabled={auctionLoading}
+                      disabled={auctionLoading || auctionData?.scan_running}
                       className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
                     >
-                      {auctionLoading ? "Сканирую аукцион..." : "Сканировать аукцион"}
+                      {auctionLoading || auctionData?.scan_running ? "Сканирую аукцион..." : "Сканировать аукцион"}
                     </button>
                     <select
                       value={auctionCampaignId}
@@ -2580,6 +2721,100 @@ function App() {
                       <button onClick={loadAuctionStatus} className="text-xs text-slate-500 underline">загрузить статус</button>
                     )}
                   </div>
+
+                  {/* Выбор товаров для рекламы */}
+                  <div className="mb-3 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-900/60">
+                    <button
+                      onClick={() => setAdPanelOpen((v) => !v)}
+                      className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-800/40"
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className={`inline-flex h-6 min-w-[2.5rem] items-center justify-center rounded-full px-2 text-xs font-bold ${adSelectedCount ? "bg-amber-500 text-slate-950" : "bg-slate-700 text-slate-300"}`}>
+                          {adSelectedCount}
+                        </span>
+                        <span className="text-sm font-semibold text-slate-200">
+                          Товары в рекламе
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {adSelectedCount ? `выбрано ${adSelectedCount} из ${adProducts.length}` : `не выбраны — рекламируется всё (${adProducts.length})`}
+                        </span>
+                      </span>
+                      <span className={`text-slate-500 transition-transform ${adPanelOpen ? "rotate-180" : ""}`}>▾</span>
+                    </button>
+                    {adPanelOpen && (
+                      <div className="border-t border-slate-700/60 px-4 pb-4">
+                        <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center gap-2 bg-slate-900/95 px-4 py-2 backdrop-blur">
+                          <input
+                            value={adQuery}
+                            onChange={(e) => setAdQuery(e.target.value)}
+                            placeholder="Поиск по названию или артикулу…"
+                            className="min-w-[200px] flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-sm outline-none focus:border-amber-500"
+                          />
+                          <span className="rounded bg-slate-800 px-2 py-1 text-xs text-slate-300">
+                            выбрано <b className="text-amber-400">{adSelectedCount}</b>
+                          </span>
+                          <button onClick={() => selectTopMargin(50)} className="rounded-lg bg-sky-600/80 px-3 py-1.5 text-xs font-bold text-white hover:bg-sky-500">
+                            Топ-50 по марже
+                          </button>
+                          <button onClick={() => setAdSelected({})} className="rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-bold text-slate-200 hover:bg-slate-600">
+                            Снять все
+                          </button>
+                          <button onClick={saveAdSelection} disabled={adSaving} className="rounded-lg bg-amber-500 px-4 py-1.5 text-xs font-bold text-slate-950 hover:bg-amber-400 disabled:opacity-50">
+                            {adSaving ? "Сохраняю..." : "Сохранить выбор"}
+                          </button>
+                        </div>
+                        {adProductsLoading && <p className="py-3 text-xs text-slate-500">Загружаю товары…</p>}
+                        {!adProductsLoading && adGrouped.length === 0 && (
+                          <p className="py-3 text-xs text-slate-500">Ничего не найдено{adQuery ? ` по «${adQuery}»` : ""}</p>
+                        )}
+                        <div className="mt-1 max-h-80 space-y-1 overflow-y-auto pr-1">
+                          {adGrouped.map((g) => {
+                            const open = adQuery ? true : !!adOpenCats[g.cid];
+                            const allOn = g.selectedCount === g.products.length && g.products.length > 0;
+                            return (
+                              <div key={g.cid} className="rounded-lg border border-slate-800/70 bg-slate-950/40">
+                                <div className="flex items-center gap-2 px-3 py-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={allOn}
+                                    onChange={(e) => setCategorySelection(g.cid, g.products, e.target.checked)}
+                                    className="h-3.5 w-3.5 accent-amber-500"
+                                    title="Выбрать всю категорию"
+                                  />
+                                  <button
+                                    onClick={() => setAdOpenCats((p) => ({ ...p, [g.cid]: !p[g.cid] }))}
+                                    className="flex flex-1 items-center justify-between text-left"
+                                  >
+                                    <span className="text-xs font-semibold text-slate-300">{g.name}</span>
+                                    <span className="text-[10px] text-slate-500">
+                                      {g.selectedCount > 0 && <b className="mr-1 text-amber-400">{g.selectedCount}/</b>}{g.products.length} {open ? "▴" : "▾"}
+                                    </span>
+                                  </button>
+                                </div>
+                                {open && (
+                                  <div className="grid gap-0.5 border-t border-slate-800/60 px-2 py-1.5 sm:grid-cols-2">
+                                    {g.products.map((p) => (
+                                      <label key={p.sku} className={`flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs hover:bg-slate-800/50 ${adSelected[p.sku] ? "bg-amber-500/10" : ""}`}>
+                                        <input
+                                          type="checkbox"
+                                          checked={!!adSelected[p.sku]}
+                                          onChange={() => toggleAdProduct(p.sku)}
+                                          className="h-3.5 w-3.5 shrink-0 accent-amber-500"
+                                        />
+                                        <span className="min-w-0 flex-1 truncate text-slate-300" title={p.name}>{p.name}</span>
+                                        <span className="shrink-0 text-[10px] text-slate-500">{p.price ? `${Math.round(p.price)}₽` : ""}{p.margin ? ` · м${Math.round(p.margin)}₽` : ""}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {auctionData?.items?.length > 0 && (
                     <div className="max-h-64 overflow-y-auto rounded border border-slate-800">
                       <table className="w-full text-xs">
@@ -4119,11 +4354,12 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   const [editingProduct, setEditingProduct] = React.useState(null);
   const [savingId, setSavingId] = React.useState(null);
   const [showAddForm, setShowAddForm] = React.useState(false);
-  const emptyAddForm = { name: "", sku: "", model: "", cash_price: "", non_cash_price: "", price: "", price_non_cash: "", quantity: "1", category_id: "", image: "", image_url: "", description: "", meta_title: "", meta_description: "", meta_keyword: "" };
+  const emptyAddForm = { name: "", sku: "", model: "", ean: "", cash_price: "", non_cash_price: "", price: "", price_non_cash: "", quantity: "1", category_id: "", image: "", image_url: "", description: "", meta_title: "", meta_description: "", meta_keyword: "" };
   const [addForm, setAddForm] = React.useState(emptyAddForm);
   const [addAttrs, setAddAttrs] = React.useState([]);
   const [generatingDraft, setGeneratingDraft] = React.useState(false);
   const [uploadingAddImg, setUploadingAddImg] = React.useState(false);
+  const [barcodeLoading, setBarcodeLoading] = React.useState(false);
   const [detailEdit, setDetailEdit] = React.useState(false);
   const [detailForm, setDetailForm] = React.useState(null);
   const [uploadingImg, setUploadingImg] = React.useState(false);
@@ -4132,8 +4368,36 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   const [productAttrs, setProductAttrs] = React.useState([]);
   const [savingAttrs, setSavingAttrs] = React.useState(false);
   const [catOpen, setCatOpen] = React.useState(false);
+  const [searchResults, setSearchResults] = React.useState(null); // null = режим категории
+  const [searching, setSearching] = React.useState(false);
+  const [deletingCat, setDeletingCat] = React.useState(null);
+  const [recentMode, setRecentMode] = React.useState(false);
+  const [recentProducts, setRecentProducts] = React.useState([]);
+  const [recentLoading, setRecentLoading] = React.useState(false);
 
   const MARKUP = 1.285; // 28.5%
+
+  // Глобальный поиск по каталогу (debounce 400мс). Пустая строка → вернуться к режиму категории.
+  React.useEffect(() => {
+    const q = prodSearch.trim();
+    if (q.length < 2) {
+      setSearchResults(null);
+      setSearching(false);
+      return;
+    }
+    setRecentMode(false);
+    setSearching(true);
+    const t = setTimeout(() => {
+      apiGet("/opencart/products/search?keyword=" + encodeURIComponent(q) + "&limit=60")
+        .then((data) => {
+          if (data.status === "error") { addToast("Поиск: " + (data.detail || "ошибка"), "error"); }
+          setSearchResults(data.products || []);
+          setSearching(false);
+        })
+        .catch((err) => { addToast("Ошибка поиска: " + err.message, "error"); setSearching(false); });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [prodSearch]);
 
   React.useEffect(() => {
     setCatLoading(true);
@@ -4158,6 +4422,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
   function loadCategory(categoryId) {
     setSelCatId(categoryId);
     setCatOpen(false);
+    setRecentMode(false);
     setCatLoading(true);
     apiGet("/opencart/products/byCategory?category_id=" + categoryId)
       .then((data) => {
@@ -4167,21 +4432,68 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
       .catch((err) => { addToast("Ошибка загрузки товаров: " + err.message, "error"); setCatProducts([]); setCatLoading(false); });
   }
 
+  async function loadRecent() {
+    setProdSearch("");
+    setSearchResults(null);
+    setRecentMode(true);
+    setRecentLoading(true);
+    try {
+      const data = await apiGet("/opencart/products/recent?limit=50");
+      if (data.status === "error") { addToast("Недавние: " + (data.detail || "ошибка"), "error"); setRecentMode(false); return; }
+      setRecentProducts(data.products || []);
+    } catch (err) {
+      addToast("Ошибка: " + err.message, "error");
+      setRecentMode(false);
+    } finally {
+      setRecentLoading(false);
+    }
+  }
+
+  async function deleteCategory(node) {
+    const kids = (node.children || []).length;
+    const warn = kids ? ` и ${kids} подкатегор. (рекурсивно)` : "";
+    if (!window.confirm(`Удалить категорию «${node.name}» #${node.category_id}${warn}?\n\nСама категория и привязки товаров к ней будут удалены. Товары НЕ удаляются.`)) return;
+    setDeletingCat(node.category_id);
+    try {
+      const res = await apiPost("/opencart/categories/delete", { category_id: node.category_id });
+      if (res.status === "deleted") {
+        addToast(`Категория «${node.name}» удалена`, "success");
+        if (selCatId === node.category_id) { setSelCatId(null); setCatProducts([]); }
+        // пересобрать дерево локально
+        const drop = (nodes) => nodes.filter((n) => n.category_id !== node.category_id).map((n) => ({ ...n, children: drop(n.children || []) }));
+        setCatTree(drop(catTree));
+      } else {
+        addToast("Удаление: " + (res.detail || res.error || "ошибка"), "error");
+      }
+    } catch (err) {
+      addToast("Ошибка удаления: " + err.message, "error");
+    } finally {
+      setDeletingCat(null);
+    }
+  }
+
   function toggleExpand(id) { const next = new Set(expanded); if (next.has(id)) next.delete(id); else next.add(id); setExpanded(next); }
 
   function renderTree(nodes, level = 0) {
     return nodes.map((node) => {
       const hasChildren = (node.children || []).length > 0;
       const isExpanded = expanded.has(node.category_id);
-      const isSelected = selCatId === node.category_id;
+      const isSelected = selCatId === node.category_id && searchResults === null;
       return (
         <div key={node.category_id}>
-          <button onClick={() => { loadCategory(node.category_id); if (hasChildren) toggleExpand(node.category_id); }} className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${isSelected ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50" : "text-slate-300 hover:bg-slate-800"}`} style={{ paddingLeft: 12 + level * 16 }}>
+          <button onClick={() => { loadCategory(node.category_id); if (hasChildren) toggleExpand(node.category_id); }} className={`group flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${isSelected ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50" : "text-slate-300 hover:bg-slate-800"}`} style={{ paddingLeft: 12 + level * 16 }}>
             {hasChildren && <span onClick={(e) => { e.stopPropagation(); toggleExpand(node.category_id); }} className="text-slate-500 hover:text-slate-300 cursor-pointer">{isExpanded ? "▼" : "▶"}</span>}
             {!hasChildren && <span className="w-4" />}
             <Folder size={14} className={isSelected ? "text-emerald-400" : "text-slate-500"} />
             <span className="truncate">{node.name}</span>
             <span className="ml-auto text-xs text-slate-500">#{node.category_id}</span>
+            <span
+              role="button" title="Удалить категорию"
+              onClick={(e) => { e.stopPropagation(); deleteCategory(node); }}
+              className={`shrink-0 rounded p-0.5 transition ${deletingCat === node.category_id ? "animate-pulse text-orange-400" : "text-slate-600 opacity-0 group-hover:opacity-100 hover:text-red-400 hover:bg-slate-700"}`}
+            >
+              {deletingCat === node.category_id ? <RefreshCw size={13} className="animate-spin" /> : <X size={13} />}
+            </span>
           </button>
           {hasChildren && isExpanded && <div>{renderTree(node.children, level + 1)}</div>}
         </div>
@@ -4438,13 +4750,17 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     }
   }
 
-  async function generateDraft() {
-    if (!addForm.name) { addToast("Введите название товара", "error"); return; }
+  async function generateDraft(overrides) {
+    const o = overrides || {};
+    const draftName = o.name !== undefined ? o.name : addForm.name;
+    const draftModel = o.model !== undefined ? o.model : addForm.model;
+    const draftCatId = o.category_id !== undefined ? o.category_id : addForm.category_id;
+    if (!draftName) { addToast("Введите название товара", "error"); return; }
     setGeneratingDraft(true);
     try {
-      const catId = Number(addForm.category_id) || selCatId;
+      const catId = Number(draftCatId) || selCatId;
       const cat = flattenCats(catTree).find((c) => String(c.category_id) === String(catId));
-      const data = await apiPost("/opencart/products/generateDraft", { name: addForm.name, model: addForm.model, category_name: cat ? cat.name : "" });
+      const data = await apiPost("/opencart/products/generateDraft", { name: draftName, model: draftModel, category_name: cat ? cat.name : "" });
       if (data.error) {
         addToast("Ошибка генерации: " + data.error, "error");
       } else {
@@ -4472,6 +4788,265 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     }
   }
 
+  const barcodeFileRef = React.useRef(null);
+  const [scanningBarcode, setScanningBarcode] = React.useState(false);
+
+  // Распознаём штрих-код с фото (камера/галерея) прямо в браузере — без бэкенда
+  async function scanBarcodePhoto(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setScanningBarcode(true);
+    try {
+      const url = URL.createObjectURL(file);
+      try {
+        // готовим уменьшенную копию: большие мобильные фото декодируются плохо
+        const img = await new Promise((res, rej) => {
+          const im = new window.Image();
+          im.onload = () => res(im);
+          im.onerror = rej;
+          im.src = url;
+        });
+        // контрольная цифра EAN-13/EAN-8/UPC-A — отбраковываем кривые декоды
+        const eanOk = (c) => {
+          c = c.replace(/\D/g, "");
+          if (![8, 12, 13].includes(c.length)) return false;
+          const d = c.split("").map(Number);
+          const chk = d.pop();
+          // нечётная длина (EAN-13): веса 1,3,1,3…; чётная (UPC-A/EAN-8): 3,1,3,1…
+          const sum = d.reduce((acc, v, i) => acc + v * ((c.length % 2 ? i : i + 1) % 2 ? 3 : 1), 0);
+          return (10 - sum % 10) % 10 === chk;
+        };
+
+        // фото с телефона часто повёрнуто — пробуем 0/90/270 на двух масштабах
+        const mkCanvas = (scale, rot) => {
+          const cv = document.createElement("canvas");
+          const w = img.width * scale, h = img.height * scale;
+          cv.width = rot % 180 ? Math.round(h) : Math.round(w);
+          cv.height = rot % 180 ? Math.round(w) : Math.round(h);
+          const ctx = cv.getContext("2d");
+          ctx.translate(cv.width / 2, cv.height / 2);
+          ctx.rotate(rot * Math.PI / 180);
+          ctx.drawImage(img, -w / 2, -h / 2, w, h);
+          return cv;
+        };
+        const baseScale = Math.min(1, 1600 / Math.max(img.width, img.height));
+        const variants = [
+          mkCanvas(baseScale, 0), mkCanvas(baseScale, 90), mkCanvas(baseScale, 270),
+          mkCanvas(Math.min(1, baseScale / 2), 0), mkCanvas(Math.min(1, baseScale / 2), 90),
+        ];
+
+        const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "itf", "qr_code"];
+        let code = "", raw = "";
+
+        // 1) нативный декодер браузера (Chrome/Android поддерживает EAN)
+        if (window.BarcodeDetector) {
+          try {
+            const det = new window.BarcodeDetector({ formats: FORMATS });
+            for (const cv of variants) {
+              const found = await det.detect(cv).catch(() => []);
+              if (found && found[0]) {
+                raw = found[0].rawValue || "";
+                if (eanOk(raw)) { code = raw; break; }
+              }
+            }
+          } catch (_) { /* нет поддержки форматов — идём в zxing */ }
+        }
+
+        // 2) zxing с TRY_HARDER по всем поворотам
+        if (!code) {
+          const ZX = await import("@zxing/library");
+          const hints = new Map();
+          hints.set(ZX.DecodeHintType.TRY_HARDER, true);
+          hints.set(ZX.DecodeHintType.POSSIBLE_FORMATS, [
+            ZX.BarcodeFormat.EAN_13, ZX.BarcodeFormat.EAN_8, ZX.BarcodeFormat.UPC_A,
+            ZX.BarcodeFormat.UPC_E, ZX.BarcodeFormat.CODE_128, ZX.BarcodeFormat.CODE_39,
+            ZX.BarcodeFormat.ITF, ZX.BarcodeFormat.QR_CODE]);
+          const reader = new ZX.BrowserMultiFormatReader(hints);
+          for (const cv of variants) {
+            try {
+              const res = await reader.decodeFromImageUrl(cv.toDataURL("image/png"));
+              const t = res.getText() || "";
+              if (eanOk(t)) { code = t; break; }
+              if (t) raw = raw || t; // запомним кривой декод для подсказки
+            } catch (_) { /* следующий поворот/масштаб */ }
+          }
+        }
+
+        code = code.replace(/\D/g, "");
+        if (code.length >= 8) {
+          setAddForm((p) => ({ ...p, ean: code }));
+          addToast("Штрих-код распознан: " + code, "success");
+          lookupBarcode(code);
+        } else if (code) {
+          addToast("Штрих-код распознан, но слишком короткий: " + code, "error");
+        } else {
+          throw new Error("not found");
+        }
+      } finally { URL.revokeObjectURL(url); }
+    } catch (_) {
+      addToast("Штрих-код на фото не найден — сфотографируйте крупнее и ровнее", "error");
+    } finally { setScanningBarcode(false); }
+  }
+
+  // Поиск по названию: категория + фото + характеристики с официального сайта — без штрих-кода
+  async function lookupName() {
+    const prodName = (addForm.name || "").trim();
+    if (prodName.length < 5) { addToast("Введите название товара (с брендом и моделью)", "error"); return; }
+    setBarcodeLoading(true);
+    const steps = [];
+    try {
+      // 1) Категория
+      let pickedCatId = addForm.category_id;
+      if (!pickedCatId) {
+        try {
+          const cats = flattenCats(catTree).map((c) => ({ id: c.category_id, name: c.name }));
+          const sug = await apiPost("/opencart/products/suggestCategory", { name: prodName, categories: cats });
+          if (sug && sug.status === "ok" && sug.category_id) {
+            pickedCatId = String(sug.category_id);
+            setAddForm((p) => ({ ...p, category_id: pickedCatId }));
+            steps.push("категория выбрана");
+          }
+        } catch (_) { /* категорию выберет пользователь */ }
+      }
+
+      // 2) Фото + характеристики с официального сайта бренда
+      let offsiteFound = false;
+      try {
+        const found = await apiGet("/opencart/products/imageSearch?q=" + encodeURIComponent(prodName) + "&brand=");
+        if (found && found.page) {
+          offsiteFound = true;
+          steps.push("офсайт: " + found.source);
+          const imgUrl = (found.urls && found.urls[0]) || "";
+          if (imgUrl && !addForm.image) {
+            try {
+              const up = await apiPost("/opencart/images/uploadUrl", { url: imgUrl });
+              if (up && (up.status === "uploaded" || up.path)) {
+                setAddForm((p) => ({ ...p, image: up.path, image_url: "https://stroiapp.ru/image/" + up.path }));
+                steps.push("фото загружено");
+              }
+            } catch (_) { /* фото вручную */ }
+          }
+          if (found.attrs && found.attrs.length) {
+            const norm = (s) => (s || "").toLowerCase().trim();
+            setAddAttrs(found.attrs.map((a) => {
+              const n = norm(a.name);
+              const m = allAttributes.find((x) => norm(x.name) === n) || allAttributes.find((x) => n && (norm(x.name).startsWith(n) || n.startsWith(norm(x.name))));
+              return { ...a, attribute_id: m ? String(m.attribute_id) : "" };
+            }));
+            steps.push(`характеристик: ${found.attrs.length}`);
+          }
+        } else {
+          steps.push((found && found.detail) || "страница на офсайте не найдена");
+        }
+      } catch (_) { /* офсайт не отвечает */ }
+
+      // 3) Фолбэк на наш каталог: похожий товар → его фото/категория/характеристики
+      if (!offsiteFound || !addForm.image) {
+        try {
+          const sim = await apiPost("/opencart/products/findSimilar", { name: prodName });
+          const m = sim && sim.match;
+          if (m) {
+            steps.push(`похожий в каталоге: «${(m.name || "").slice(0, 40)}» (${Math.round((sim.cover || 0) * 100)}%)`);
+            if (m.image && !addForm.image) {
+              setAddForm((p) => ({ ...p, image: m.image, image_url: "https://stroiapp.ru/image/" + m.image }));
+              steps.push("фото из каталога");
+            }
+            if (m.category_id && !addForm.category_id) {
+              setAddForm((p) => ({ ...p, category_id: String(m.category_id) }));
+              pickedCatId = pickedCatId || String(m.category_id);
+              steps.push("категория из каталога");
+            }
+            if (m.attributes && m.attributes.length && !addAttrs.length) {
+              setAddAttrs(m.attributes);
+              steps.push(`характеристик: ${m.attributes.length} из каталога`);
+            }
+          }
+        } catch (_) { /* каталог не ответил */ }
+      }
+
+      addToast(steps.length ? "Найдено: " + steps.join(", ") : "Ничего не нашлось — заполните вручную", steps.length ? "success" : "error");
+      generateDraft({ name: prodName, category_id: pickedCatId });
+    } catch (err) {
+      addToast("Ошибка поиска: " + err.message, "error");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }
+
+  async function lookupBarcode(codeOverride) {
+    const code = String(codeOverride || addForm.ean || "").trim();
+    if (!code || code.length < 8) { addToast("Введите штрих-код (8-14 цифр)", "error"); return; }
+    setBarcodeLoading(true);
+    const steps = [];
+    try {
+      // 1) Поиск по штрих-коду
+      const data = await apiGet("/opencart/products/barcodeLookup?ean=" + encodeURIComponent(code));
+      if (data && data.existing) {
+        addToast(`Товар с этим штрих-кодом уже есть: ${data.existing.name} (ID ${data.existing.product_id})`, "error");
+        return;
+      }
+      const s = (data && data.suggestion) || {};
+      const prodName = addForm.name || s.name || "";
+      if (!prodName) {
+        addToast("В базе не найден — заполните поля вручную", "error");
+        return;
+      }
+      setAddForm((p) => ({
+        ...p,
+        name: p.name || s.name,
+        model: p.model || s.model || "",
+        description: p.description || s.description || "",
+      }));
+      steps.push("найдено в базе" + (s.source ? ` (${s.source})` : ""));
+
+      // 2) Автовыбор категории (DeepSeek)
+      let pickedCatId = addForm.category_id;
+      if (!pickedCatId) {
+        try {
+          const cats = flattenCats(catTree).map((c) => ({ id: c.category_id, name: c.name }));
+          const sug = await apiPost("/opencart/products/suggestCategory", { name: prodName, categories: cats });
+          if (sug && sug.status === "ok" && sug.category_id) {
+            pickedCatId = String(sug.category_id);
+            setAddForm((p) => ({ ...p, category_id: pickedCatId }));
+            steps.push("категория выбрана" + (sug.reason ? ` (${sug.reason})` : ""));
+          }
+        } catch (_) { /* пропускаем — категорию выберет пользователь */ }
+      }
+
+      // 3) Фото: из базы штрих-кодов, иначе — с официального сайта бренда
+      if (!addForm.image) {
+        let imgUrl = s.image || "";
+        if (!imgUrl) {
+          try {
+            const q = prodName + (s.brand ? " " + s.brand : "");
+            const found = await apiGet("/opencart/products/imageSearch?q=" + encodeURIComponent(q) + "&brand=" + encodeURIComponent(s.brand || ""));
+            imgUrl = (found && found.urls && found.urls[0]) || "";
+            if (imgUrl && found.source && found.source !== "yandex") steps.push(`фото с ${found.source}`);
+          } catch (_) { /* нет фото — загрузит вручную */ }
+        }
+        if (imgUrl) {
+          try {
+            const up = await apiPost("/opencart/images/uploadUrl", { url: imgUrl });
+            if (up && (up.status === "uploaded" || up.path)) {
+              setAddForm((p) => ({ ...p, image: up.path, image_url: "https://stroiapp.ru/image/" + up.path }));
+              steps.push("фото загружено");
+            }
+          } catch (_) { /* фото можно загрузить вручную */ }
+        }
+      }
+
+      addToast("Найдено: " + steps.join(", ") + " — проверьте и сохраните", "success");
+
+      // 4) Описание + характеристики через generateDraft (в фоне, не блокируя)
+      generateDraft({ name: prodName, model: addForm.model || s.model || "", category_id: pickedCatId });
+    } catch (err) {
+      addToast("Ошибка поиска: " + err.message, "error");
+    } finally {
+      setBarcodeLoading(false);
+    }
+  }
+
   async function addProduct() {
     const catId = Number(addForm.category_id) || selCatId;
     if (!addForm.name || !catId) { addToast("Название и категория обязательны", "error"); return; }
@@ -4489,6 +5064,7 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
       price_non_cash: priceNonCash,
       quantity: parseInt(addForm.quantity) || 1,
       category_id: catId,
+      ean: (addForm.ean || "").trim(),
       image: addForm.image || "",
       description: addForm.description || "",
       meta_title: addForm.meta_title || "",
@@ -4553,11 +5129,13 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
     reader.readAsText(file);
   }
 
+  // Режим поиска: при >=2 символах показываем результаты глобального поиска, иначе — товары категории
   const filteredProducts = React.useMemo(() => {
+    if (searchResults !== null) return searchResults;
     if (!prodSearch.trim()) return catProducts;
     const q = prodSearch.toLowerCase();
     return catProducts.filter((p) => (p.name || "").toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q) || String(p.product_id).includes(q));
-  }, [catProducts, prodSearch]);
+  }, [catProducts, prodSearch, searchResults]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
@@ -4566,7 +5144,9 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
           <button onClick={() => setCatOpen((o) => !o)} className="mb-3 flex w-full items-center gap-2 text-sm font-bold text-slate-200 lg:pointer-events-none">
             <Folder size={16} className="text-emerald-400" />Категории
-            {selCatId && <span className="text-xs font-normal text-slate-500">#{selCatId}</span>}
+            {searchResults !== null
+              ? <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">поиск по всему каталогу</span>
+              : selCatId && <span className="text-xs font-normal text-slate-500">#{selCatId}</span>}
             <span className="ml-auto text-xs text-slate-500 lg:hidden">{catOpen ? "▲ скрыть" : "▼ выбрать"}</span>
           </button>
           {catLoading && catTree.length === 0 ? <div className="text-sm text-slate-400">Загрузка...</div> : (
@@ -4580,11 +5160,16 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
         {/* Toolbar */}
         <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-4">
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2">
-              <Search size={14} className="text-slate-500" />
-              <input value={prodSearch} onChange={(e) => setProdSearch(e.target.value)} placeholder="Поиск по товару..." className="bg-transparent text-sm outline-none text-slate-200 placeholder:text-slate-500 w-48" />
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 sm:max-w-md">
+              <Search size={14} className="shrink-0 text-slate-500" />
+              <input value={prodSearch} onChange={(e) => setProdSearch(e.target.value)} placeholder="Поиск по всему каталогу..." className="w-full bg-transparent text-sm outline-none text-slate-200 placeholder:text-slate-500" />
+              {searching && <RefreshCw size={14} className="shrink-0 animate-spin text-emerald-400" />}
+              {searchResults !== null && !searching && (
+                <button onClick={() => { setProdSearch(""); setSearchResults(null); }} title="Сбросить поиск" className="shrink-0 text-slate-500 hover:text-slate-300"><X size={14} /></button>
+              )}
             </div>
             <div className="flex-1" />
+            <button onClick={loadRecent} disabled={recentLoading} title="Последние добавленные на сайт товары" className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-40 ${recentMode ? "bg-sky-500 font-bold text-slate-950" : "bg-slate-800 text-slate-200 hover:bg-slate-700"}`}><Clock size={14} />{recentLoading ? "Загрузка..." : "Недавние"}</button>
             <button onClick={() => { setAddForm((p) => ({ ...p, category_id: selCatId || "" })); setShowAddForm(true); }} disabled={!selCatId} className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:opacity-40 disabled:cursor-not-allowed"><Plus size={14} />Добавить</button>
             <button onClick={exportCSV} disabled={catProducts.length === 0} className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-40"><Download size={14} />CSV</button>
             <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">
@@ -4595,10 +5180,28 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
           </div>
         </div>
 
-        {catLoading && catProducts.length === 0 ? (
-          <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-400">Загрузка товаров...</div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-500">{selCatId ? "В этой категории нет товаров" : "Выберите категорию"}</div>
+        {searchResults !== null && (
+          <div className="flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5">
+            <Search size={15} className="shrink-0 text-emerald-400" />
+            <span className="truncate text-sm text-slate-200">
+              Найдено <b className="text-emerald-400">{filteredProducts.length}</b> товаров по запросу <b className="text-slate-100">«{prodSearch.trim()}»</b>
+            </span>
+            <button onClick={() => { setProdSearch(""); setSearchResults(null); }} className="ml-auto inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700">
+              <X size={13} />Сбросить
+            </button>
+          </div>
+        )}
+
+        {filteredProducts.length === 0 ? (
+          <div className="rounded-2xl border border-slate-700/30 glass glass-hover p-8 text-center text-slate-500">
+            {searchResults !== null
+              ? `По запросу «${prodSearch}» ничего не найдено`
+              : recentMode
+                ? (recentLoading ? "Загрузка недавних..." : "Недавно добавленных товаров нет")
+                : catLoading && catProducts.length === 0
+                  ? "Загрузка товаров..."
+                  : selCatId ? "В этой категории нет товаров" : "Выберите категорию"}
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {filteredProducts.map((p) => {
@@ -4823,7 +5426,22 @@ function ProductsTreePanel({ catTree, setCatTree, catProducts, setCatProducts, s
               <button onClick={() => setShowAddForm(false)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-800 hover:text-white"><X size={20} /></button>
             </div>
             <div className="space-y-3">
-              <div><div className="text-xs text-slate-500 mb-1">Название *</div><input value={addForm.name} onChange={(e) => setAddForm((p) => ({ ...p, name: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" /></div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Штрих-код (EAN)</div>
+                <div className="flex gap-2">
+                  <input value={addForm.ean} onChange={(e) => setAddForm((p) => ({ ...p, ean: e.target.value.replace(/[^0-9]/g, "") }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupBarcode(); } }} placeholder="4600682000000" inputMode="numeric" className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" />
+                  <input ref={barcodeFileRef} type="file" accept="image/*" capture="environment" onChange={scanBarcodePhoto} className="hidden" />
+                  <button type="button" onClick={() => barcodeFileRef.current && barcodeFileRef.current.click()} disabled={scanningBarcode || barcodeLoading} title="Сфотографировать штрих-код" className="rounded-lg bg-slate-700 px-3 py-2 text-xs font-bold text-white hover:bg-slate-600 disabled:opacity-40">{scanningBarcode ? "..." : <Camera size={15} />}</button>
+                  <button onClick={() => lookupBarcode()} disabled={barcodeLoading || !(addForm.ean || "").trim()} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-500 disabled:opacity-40">{barcodeLoading ? "Поиск..." : "Найти"}</button>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500 mb-1">Название * <span className="text-slate-600">(бренд + модель — по нему ищем фото и характеристики с офсайта)</span></div>
+                <div className="flex gap-2">
+                  <input value={addForm.name} onChange={(e) => setAddForm((p) => ({ ...p, name: e.target.value }))} onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); lookupName(); } }} placeholder="Шпаклевка ВОЛМА Слой 30 кг" className="flex-1 rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500" />
+                  <button type="button" onClick={lookupName} disabled={barcodeLoading || !(addForm.name || "").trim()} title="Найти на официальном сайте бренда" className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-500 disabled:opacity-40 whitespace-nowrap">{barcodeLoading ? "..." : "Найти"}</button>
+                </div>
+              </div>
               <div><div className="text-xs text-slate-500 mb-1">Категория *</div>
                 <select value={addForm.category_id || selCatId || ""} onChange={(e) => setAddForm((p) => ({ ...p, category_id: e.target.value }))} className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 outline-none focus:border-emerald-500">
                   {flattenCats(catTree).map((c) => (<option key={c.category_id} value={c.category_id}>{"— ".repeat(c.depth)}{c.name}</option>))}
