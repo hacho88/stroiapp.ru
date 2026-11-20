@@ -601,9 +601,9 @@ async def hero_banner_update(payload: FileWritePayload):
 
 
 @router.get("/products/byCategory")
-async def products_by_category(category_id: int):
+async def products_by_category(category_id: int, all: int = 0):
     try:
-        data = await opencart_api.get_action("product/listByCategory", {"category_id": category_id})
+        data = await opencart_api.get_action("product/listByCategory", {"category_id": category_id, "all": all})
         items = data.get("products") or []
         keep = ("product_id", "model", "sku", "name", "price", "price_non_cash", "cash_price",
                 "non_cash_price", "quantity", "image", "image_url", "status", "has_description", "has_meta")
@@ -614,9 +614,9 @@ async def products_by_category(category_id: int):
 
 
 @router.get("/products/search")
-async def products_search(keyword: str, limit: int = 60):
+async def products_search(keyword: str, limit: int = 60, all: int = 0):
     try:
-        data = await opencart_api.get_action("product/searchFull", {"keyword": keyword, "limit": limit})
+        data = await opencart_api.get_action("product/searchFull", {"keyword": keyword, "limit": limit, "all": all})
         items = data.get("products") or []
         keep = ("product_id", "model", "sku", "name", "price", "price_non_cash", "cash_price",
                 "non_cash_price", "quantity", "image", "image_url", "status", "has_description", "has_meta")
@@ -1623,8 +1623,10 @@ async def products_list(limit: int = 50, page: int = 1):
 
 @router.get("/products/recent")
 async def products_recent(limit: int = 50):
-    """Последние добавленные товары на сайте (по убыванию product_id).
+    """Последние добавленные ИЛИ изменённые товары на сайте.
 
+    Сортировка по GREATEST(date_added, date_modified) — productUpdate на сайте
+    пишет date_modified=NOW() при каждом изменении.
     Поля — как у listByCategory: UI переиспользует карточку товара
     (image_url, has_description, has_meta, цены нал/безнал)."""
     try:
@@ -1632,11 +1634,12 @@ async def products_recent(limit: int = 50):
         sql = (
             "SELECT p.product_id, p.model, p.sku, p.price, p.price_non_cash, "
             "p.cash_price, p.non_cash_price, p.quantity, p.image, p.status, "
+            "p.date_added, p.date_modified, "
             "pd.name, pd.description, pd.meta_title "
             "FROM oc_openproduct p "
             "LEFT JOIN oc_openproduct_description pd "
             "ON (p.product_id = pd.product_id AND pd.language_id = 1) "
-            "ORDER BY p.product_id DESC LIMIT " + str(limit)
+            "ORDER BY GREATEST(p.date_added, p.date_modified) DESC LIMIT " + str(limit)
         )
         data = await opencart_api.post_action("db/select", {"sql": sql})
         if data.get("status") == "error":
@@ -1661,6 +1664,8 @@ async def products_recent(limit: int = 50):
                 "status": r.get("status"),
                 "has_description": len(desc) > 50,
                 "has_meta": len(meta) > 5,
+                "date_added": r.get("date_added"),
+                "date_modified": r.get("date_modified"),
             })
         return {"status": "ok", "count": len(products), "products": products}
     except Exception as exc:
