@@ -151,12 +151,15 @@ async def storefront_journal_view(slug: str, request: Request):
 
 
 def _public(p) -> dict:
+    cash_price = round(p.retail_price)
+    legal_price = round(p.retail_price * 1.285)
     return {
         "id": p.product_id,
         "sku": p.sku,
         "name": p.name,
         "model": p.model,
-        "price": p.retail_price,
+        "price": cash_price,
+        "price_legal": legal_price,
         "image": _img(p.image),
         "quantity": p.quantity,
         "category_id": p.category_id,
@@ -1596,15 +1599,24 @@ async def _egrul_legal_address(vyp_tok: str) -> str:
 
 
 async def _notify_manager(text: str):
-    """Лёгкое уведомление менеджеру в Telegram — если бот настроен."""
-    if not (settings.telegram_bot_token and settings.manager_telegram_chat_id):
-        return
+    """Лёгкое уведомление менеджеру в Telegram и MAX — что настроено."""
     try:
         async with httpx.AsyncClient(timeout=6) as c:
-            await c.post(
-                f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
-                json={"chat_id": settings.manager_telegram_chat_id, "text": text[:900]},
-            )
+            if settings.telegram_bot_token and settings.manager_telegram_chat_id:
+                await c.post(
+                    f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage",
+                    json={"chat_id": settings.manager_telegram_chat_id, "text": text[:900]},
+                )
+            if settings.max_bot_token and settings.max_chat_id:
+                try:
+                    await c.post(
+                        "https://platform-api2.max.ru/messages",
+                        params={"chat_id": settings.max_chat_id},
+                        headers={"Authorization": settings.max_bot_token},
+                        json={"text": text[:900]},
+                    )
+                except Exception as exc:
+                    print("[storefront] max notify error:", exc)
     except Exception:
         pass
 
