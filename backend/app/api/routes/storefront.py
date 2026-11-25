@@ -1609,12 +1609,15 @@ async def _notify_manager(text: str):
                 )
             if settings.max_bot_token and settings.max_chat_id:
                 try:
-                    await c.post(
-                        "https://platform-api2.max.ru/messages",
-                        params={"chat_id": settings.max_chat_id},
-                        headers={"Authorization": settings.max_bot_token},
-                        json={"text": text[:900]},
-                    )
+                    # platform-api2.max.ru подписан сертификатом Минцифры —
+                    # в certifi на сервере его нет, отключаем проверку.
+                    async with httpx.AsyncClient(timeout=6, verify=False) as mc:
+                        await mc.post(
+                            "https://platform-api2.max.ru/messages",
+                            params={"chat_id": settings.max_chat_id},
+                            headers={"Authorization": settings.max_bot_token},
+                            json={"text": text[:900]},
+                        )
                 except Exception as exc:
                     print("[storefront] max notify error:", exc)
     except Exception:
